@@ -10,7 +10,7 @@ namespace Logify_WP;
 /**
  * Class Logify_WP\Widget_Tracker
  *
- * Provides tracking of events related to comments.
+ * Provides tracking of events related to widget changes.
  */
 class Widget_Tracker {
 
@@ -29,18 +29,46 @@ class Widget_Tracker {
 	private static $areas = array();
 
 	/**
+	 * Whether the widget tracking hooks have been registered for this request.
+	 *
+	 * @var bool
+	 */
+	private static bool $hooks_registered = false;
+
+	/**
 	 * Set up hooks for the events we want to log.
 	 */
 	public static function init() {
-		// Changes to widget options.
-		add_action( 'update_option', [__NAMESPACE__.'\Async_Tracker','async_update_option_widget'], 10, 3 );
+		// Only hook into widget updates when we're on a widgets-related page.
+		add_action( 'load-widgets.php', array( __CLASS__, 'register_widget_hooks' ) );
+		add_action( 'load-customize.php', array( __CLASS__, 'register_widget_hooks' ) );
+
+		// Also handle AJAX widget saves (from both classic widgets and customizer).
+		add_action( 'wp_ajax_save-widget', array( __CLASS__, 'register_widget_hooks' ), 1 );
+		add_action( 'wp_ajax_update-widget', array( __CLASS__, 'register_widget_hooks' ), 1 );
+		add_action( 'wp_ajax_customize_save', array( __CLASS__, 'register_widget_hooks' ), 1 );
+
+		// Middle handlers for async processing.
 		add_action( 'middle_update_option_widget', array( __CLASS__, 'on_update_option' ), 10, 5 );
-		
-		add_action( 'updated_option', [__NAMESPACE__.'\Async_Tracker','async_updated_option'], 10, 3 );
 		add_action( 'middle_updated_option', array( __CLASS__, 'on_updated_option' ), 10, 5 );
-		
-		add_action( 'shutdown', [__NAMESPACE__.'\Async_Tracker','async_shutdown_widget'], 10, 0 );
+
+		add_action( 'shutdown', [ __NAMESPACE__ . '\Async_Tracker', 'async_shutdown_widget' ], 10, 0 );
 		add_action( 'middle_shutdown_widget', array( __CLASS__, 'on_shutdown' ), 10, 1 );
+	}
+
+	/**
+	 * Register the actual widget tracking hooks.
+	 */
+	public static function register_widget_hooks(): void {
+		if ( self::$hooks_registered ) {
+			return;
+		}
+
+		self::$hooks_registered = true;
+
+		// Changes to widget options - only when on widgets page.
+		add_action( 'update_option', [ __NAMESPACE__ . '\Async_Tracker', 'async_update_option_widget' ], 10, 3 );
+		add_action( 'updated_option', [ __NAMESPACE__ . '\Async_Tracker', 'async_updated_option' ], 10, 3 );
 	}
 
 	/**

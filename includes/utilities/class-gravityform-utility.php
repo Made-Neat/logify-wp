@@ -8,28 +8,41 @@ class Gravityform_Utility extends Object_Utility {
     /**
      * Check if a form exists.
      *
-     * @param int $form_id Form ID to check.
+     * @param int|string|null $form_id Form ID to check.
      * @return bool True if form exists.
      */
     public static function exists( $form_id ): bool {
         if ( ! class_exists( 'GFAPI' ) ) {
             return false;
         }
-        return ! is_wp_error( \GFAPI::get_form( $form_id ) );
+        // Form ID must be numeric.
+        if ( ! is_numeric( $form_id ) ) {
+            return false;
+        }
+        $form = \GFAPI::get_form( (int) $form_id );
+        return is_array( $form );
     }
 
     /**
      * Load a form by ID.
      *
-     * @param int $form_id Form ID to load.
+     * @param int|string|null $form_id Form ID to load.
      * @return ?array Form array or null if not found.
      */
     public static function load( $form_id ): ?array {
         if ( ! class_exists( 'GFAPI' ) ) {
             return null;
         }
-        $form = \GFAPI::get_form( $form_id );
-        return is_wp_error( $form ) ? null : $form;
+        // Form ID must be numeric; return null for non-numeric IDs (e.g., option names).
+        if ( ! is_numeric( $form_id ) ) {
+            return null;
+        }
+        $form = \GFAPI::get_form( (int) $form_id );
+        // GFAPI::get_form() returns false or WP_Error on failure.
+        if ( ! is_array( $form ) ) {
+            return null;
+        }
+        return $form;
     }
 
     /**
@@ -56,10 +69,10 @@ class Gravityform_Utility extends Object_Utility {
         }
 
         return array(
-            new Property( 'id', $form_id ),
-            new Property( 'title', $form['title'] ),
-            new Property( 'is_active', isset( $form['is_active'] ) ? ($form['is_active'] ? '1' : '0') : null ),
-            new Property( 'version', isset( $form['version'] ) ? (string) $form['version'] : null ),
+            new Property( 'id', null, (string) $form_id ),
+            new Property( 'title', null, $form['title'] ),
+            new Property( 'is_active', null, isset( $form['is_active'] ) ? ( $form['is_active'] ? '1' : '0' ) : null ),
+            new Property( 'version', null, isset( $form['version'] ) ? (string) $form['version'] : null ),
         );
     }
 

@@ -36,6 +36,11 @@ class Async_Tracker
     private const LARGE_OPTION_MARGIN = 600;
 
     /**
+     * Maximum size in bytes for individual option values before skipping.
+     */
+    private const MAX_OPTION_VALUE_SIZE = 10000;
+
+    /**
      * Tracks whether any changes occurred during the request that need logging
      */
     private static array $changes = [
@@ -50,6 +55,27 @@ class Async_Tracker
      * Request-scoped identifier so option updates and their shutdown flush stay grouped together.
      */
     private static ?string $optionBatchId = null;
+
+    /**
+     * Check if an option value is too large to safely pass through async scheduling.
+     *
+     * @param mixed $value The option value to check.
+     * @return bool True if the value exceeds the safe size limit.
+     */
+    private static function isOptionValueTooLarge(mixed $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        try {
+            $size = is_string($value) ? strlen($value) : strlen(serialize($value));
+            return $size > self::MAX_OPTION_VALUE_SIZE;
+        } catch (\Throwable $e) {
+            // If serialization fails, assume it's problematic.
+            return true;
+        }
+    }
 
     /**
      * Mark a specific type as having changes that need logging
@@ -292,6 +318,12 @@ class Async_Tracker
     public static function async_updated_option(string $option, mixed $old_option_value, mixed $new_option_value): void
     {
         if (!Option_Utility::should_track_option($option, $old_option_value, $new_option_value)) {
+            return;
+        }
+
+        // Skip excessively large option values to prevent memory/payload issues.
+        if (self::isOptionValueTooLarge($old_option_value) || self::isOptionValueTooLarge($new_option_value)) {
+            Debug::info("Skipping large option '{$option}'");
             return;
         }
 
@@ -793,6 +825,12 @@ class Async_Tracker
             return;
         }
 
+        // Skip excessively large option values to prevent memory/payload issues.
+        if (self::isOptionValueTooLarge($old_value) || self::isOptionValueTooLarge($value)) {
+            Debug::info("Skipping large plugin option '{$option}'");
+            return;
+        }
+
         $actingUserId = get_current_user_id();
         
         if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_update_option_plugin', [$option, $old_value, $value, $actingUserId], self::GROUP)) {
@@ -887,6 +925,12 @@ class Async_Tracker
     public static function async_update_option_widget(string $option, mixed $old_value, mixed $value): void
     {
         if (!Option_Utility::should_track_option($option, $old_value, $value)) {
+            return;
+        }
+
+        // Skip excessively large option values to prevent memory/payload issues.
+        if (self::isOptionValueTooLarge($old_value) || self::isOptionValueTooLarge($value)) {
+            Debug::info("Skipping large widget option '{$option}'");
             return;
         }
         
