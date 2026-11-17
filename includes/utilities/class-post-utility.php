@@ -286,23 +286,33 @@ class Post_Utility extends Object_Utility {
 	 */
 	public static function get_last_modified_datetime( WP_Post|int $post ): DateTime {
 		global $wpdb;
-
+	
 		// Load the post if necessary.
 		if ( is_int( $post ) ) {
 			$post = self::load( $post );
 		}
-
+	
 		// Get the last modified datetime.
 		$last_modified_datetime = $wpdb->get_var(
 			$wpdb->prepare(
-				"SELECT MAX(post_modified) FROM %i WHERE (ID = %d OR post_parent = %d) AND post_modified != '0000-00-00 00:00:00'",
-				$wpdb->posts,
+				"SELECT MAX(post_modified)
+				 FROM {$wpdb->posts}
+				 WHERE (ID = %d OR post_parent = %d)
+				   AND post_modified != '0000-00-00 00:00:00'",
 				$post->ID,
 				$post->ID
 			)
 		);
+	
+		// Fallback to current datetime if no result is found.
+		if ( empty( $last_modified_datetime ) ) {
+			return new DateTime();
+		}
+	
+		// Convert the timestamp to a DateTime object as needed.
 		return DateTimes::create_datetime( $last_modified_datetime );
 	}
+	
 
 	/**
 	 * Get the properties of a post.
