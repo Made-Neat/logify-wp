@@ -131,7 +131,7 @@ class Plugin_Utility extends Object_Utility {
 
 		// Provide a link to the plugin site.
 		if ( $plugin ) {
-			return "<a href='{$plugin['PluginURI']}' class='logify-wp-object' target='_blank'>{$plugin['Name']}</a>";
+			return "<a href='" . esc_url( $plugin['PluginURI'] ) . "' class='logify-wp-object' target='_blank'>" . esc_html( $plugin['Name'] ) . "</a>";
 		}
 
 		// Make a backup name.
@@ -140,7 +140,7 @@ class Plugin_Utility extends Object_Utility {
 		}
 
 		// The plugin has been deleted. Construct the 'deleted' span element.
-		return "<span class='logify-wp-deleted-object'>$old_name (deleted)</span>";
+		return "<span class='logify-wp-deleted-object'>" . esc_html( $old_name ) . " (deleted)</span>";
 	}
 
 	// =============================================================================================

@@ -130,7 +130,7 @@ class Term_Utility extends Object_Utility {
 				$url = admin_url( "term.php?taxonomy={$term->taxonomy}&tag_ID=$term_id" );
 			}
 
-			return "<a href='$url' class='logify-wp-object'>$term->name</a>";
+			return "<a href='" . esc_url( $url ) . "' class='logify-wp-object'>" . esc_html( $term->name ) . "</a>";
 		}
 
 		// Make a backup name.
@@ -139,7 +139,7 @@ class Term_Utility extends Object_Utility {
 		}
 
 		// The term no longer exists. Construct the 'deleted' span element.
-		return "<span class='logify-wp-deleted-object'>$old_name (deleted)</span>";
+		return "<span class='logify-wp-deleted-object'>" . esc_html( $old_name ) . " (deleted)</span>";
 	}
 
 	// =============================================================================================

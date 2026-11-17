@@ -3,10 +3,11 @@
  * Plugin Name: Logify WP - Activity Log & User Audit Log
  * Plugin URI: https://logifywp.com
  * Description: Logify WP features advanced tracking to ensure awareness of all changes made to your WordPress website, including who made them and when.
- * Version: 1.3.3
+ * Version: 1.4.0
  * Author: Made Neat
  * Author URI: https://madeneat.com
  * Requires at least: 6.2
+ * Requires PHP: 8.0
  * Text Domain: logify-wp
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -43,6 +44,14 @@ if (!defined('WP_PLUGIN_DIR')) {
 // Some useful globals.
 define('LOGIFY_WP_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('LOGIFY_WP_PLUGIN_DIR', plugin_dir_path(__FILE__));
+
+// Detect if plugin is being deleted
+$logify_wp_is_deleting = false;
+if ( isset( $_REQUEST['action'] ) && $_REQUEST['action'] === 'delete-plugin' ) {
+	if ( isset( $_REQUEST['plugin'] ) && $_REQUEST['plugin'] === plugin_basename( __FILE__ ) ) {
+		$logify_wp_is_deleting = true;
+	}
+}
 
 // =================================================================================================
 // Include all classes.
@@ -128,11 +137,17 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-beaverbuilder-util
 
 //check website already has ActionScheduler library
 if(!class_exists('ActionScheduler')){
-    // Require action scheduler library
-    require_once __DIR__ . DIRECTORY_SEPARATOR . 'action-scheduler' . DIRECTORY_SEPARATOR . 'action-scheduler.php';
+    // Only load Action Scheduler if plugin is not being deleted
+    if (!$logify_wp_is_deleting) {
+        // Require action scheduler library
+        require_once __DIR__ . DIRECTORY_SEPARATOR . 'action-scheduler' . DIRECTORY_SEPARATOR . 'action-scheduler.php';
+    }
 }
 
-\Logify_WP\AS_Bloat_Cleaner::init();
+// Only initialize bloat cleaner if plugin is not being deleted
+if (!$logify_wp_is_deleting) {
+    \Logify_WP\AS_Bloat_Cleaner::init();
+}
 
 // =================================================================================================
 
@@ -143,5 +158,7 @@ register_deactivation_hook( __FILE__, array( 'Logify_WP\Main', 'deactivate' ) );
 register_uninstall_hook( __FILE__, array( 'Logify_WP\Main', 'uninstall' ) );
 add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), array( 'Logify_WP\Main', 'add_action_links' ) );
 
-// Permit fast commenting.
-add_filter( 'comment_flood_filter', '__return_false' );
+// NOTE: this plugin previously disabled WordPress's comment flood protection
+// site-wide via add_filter( 'comment_flood_filter', '__return_false' ).
+// That was a development convenience that removed a core anti-abuse control for
+// every visitor on every install. Removed in 1.3.5. Do not reinstate it.

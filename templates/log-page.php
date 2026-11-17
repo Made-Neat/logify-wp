@@ -150,13 +150,14 @@ namespace Logify_WP;
 		<thead>
 			<tr>
 				<th class="column-id">ID</th>
-				<th>Date</th>
-				<th>User</th>
-				<th>Source IP</th>
-				<th>Event</th>
-				<th>Object</th>
-				<th></th>
-				<th>Actions</th>
+				<th class="column-date">Date</th>
+				<th class="column-user" data-column="display_name">User</th>
+				<th class="column-ip" data-column="user_ip">Source IP</th>
+				<th class="column-event">Event</th>
+				<th class="column-object">Object</th>
+				<th class="column-object-type" style="display: none;"></th>
+				<th class="column-notes" data-column="note_content">Notes</th>
+				<th class="column-actions">Actions</th>
 			</tr>
 		</thead>
 		<tbody>

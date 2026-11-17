@@ -130,9 +130,10 @@ class Types {
 				// Start the table row.
 				$html .= '<tr>';
 
-				// If it's not a list, show the key.
+				// If it's not a list, show the key. Array keys can come from logged
+				// option or meta values, so they are attacker-influenced: escape.
 				if ( ! $is_list ) {
-					$html .= '<th>' . Strings::key_to_label( $key2 ) . '</th>';
+					$html .= '<th>' . esc_html( Strings::key_to_label( $key2 ) ) . '</th>';
 				}
 
 				// Show the value.
@@ -148,7 +149,16 @@ class Types {
 			return $html;
 		}
 
-		// Convert to plain text string.
-		return self::value_to_string( $value );
+		// Object_Reference::get_tag() and the utility get_tag() methods return
+		// intentional HTML (a link or a span) which escapes its own text content, so
+		// it must pass through unescaped. Everything else is plain text derived from
+		// logged data - post titles, option values, usernames, user agents - and is
+		// escaped here. This is the render-time boundary for the details pane: the
+		// log stores exactly what was submitted, and escaping happens on the way out.
+		if ( $value instanceof Object_Reference ) {
+			return $value->get_tag();
+		}
+
+		return esc_html( self::value_to_string( $value ) );
 	}
 }

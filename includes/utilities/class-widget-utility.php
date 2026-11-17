@@ -160,7 +160,7 @@ class Widget_Utility extends Object_Utility {
 			}
 
 			// Construct the span element.
-			return "<span class='logify-wp-object'>$name</span>";
+			return "<span class='logify-wp-object'>" . esc_html( $name ) . "</span>";
 		}
 
 		// Make a backup name.
@@ -169,7 +169,7 @@ class Widget_Utility extends Object_Utility {
 		}
 
 		// The widget no longer exists. Construct the 'deleted' span element.
-		return "<span class='logify-wp-deleted-object'>$old_name (deleted)</span>";
+		return "<span class='logify-wp-deleted-object'>" . esc_html( $old_name ) . " (deleted)</span>";
 	}
 
 	// =============================================================================================

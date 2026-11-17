@@ -236,9 +236,10 @@ class Object_Reference {
 	 * @return string The HTML for the link or span element.
 	 */
 	public function get_tag(): string {
-		// For options, show the option name(s).
+		// For options, show the option name(s). Option names reach this from logged
+		// data, and the return value is inserted into the details HTML, so escape.
 		if ( ! $this->key && $this->type === 'option' ) {
-			return (string) $this->name;
+			return esc_html( (string) $this->name );
 		}
 
 		// Call the method on the utility class.

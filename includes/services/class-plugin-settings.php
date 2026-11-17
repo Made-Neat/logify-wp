@@ -98,8 +98,29 @@ class Plugin_Settings {
 	 * Initializes the class by adding WordPress actions.
 	 */
 	public static function init() {
-		// Register the settings.
+		// Register the settings and verify nonce for form submissions.
+		add_action( 'admin_init', array( __CLASS__, 'verify_settings_nonce' ), 5 );
 		add_action( 'admin_init', array( __CLASS__, 'register_settings' ) );
+	}
+
+	/**
+	 * Verifies the settings form nonce before processing settings.
+	 *
+	 * @return void
+	 */
+	public static function verify_settings_nonce() {
+		// Only verify on settings form submission.
+		if ( ! isset( $_POST['option_page'] ) || 'logify_wp_settings_group' !== sanitize_text_field( wp_unslash( $_POST['option_page'] ) ) ) {
+			return;
+		}
+
+		// Check the explicit nonce field for additional CSRF protection.
+		if ( isset( $_POST['logify_wp_settings_nonce_field'] ) ) {
+			$nonce = sanitize_text_field( wp_unslash( $_POST['logify_wp_settings_nonce_field'] ) );
+			if ( ! wp_verify_nonce( $nonce, 'logify_wp_settings_nonce' ) ) {
+				wp_die( esc_html( 'Security check failed. Please try again.' ) );
+			}
+		}
 	}
 
 	/**
@@ -112,7 +133,7 @@ class Plugin_Settings {
 			'logify_wp_enable_notes',
 			array(
 				'type'              => 'boolean',
-				'sanitize_callback' => 'rest_sanitize_boolean',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_enable_notes' ),
 				'default'           => self::DEFAULT_ENABLE_NOTES,
 			)
 		);
@@ -324,6 +345,39 @@ class Plugin_Settings {
 
 		// Return the intersection of the two arrays.
 		return array_intersect( $user_ids, $valid_user_ids );
+	}
+
+	/**
+	 * Sanitizes the enable notes setting and clears Notes column preferences when disabled.
+	 *
+	 * @param mixed $value The value to sanitize.
+	 * @return bool The sanitized boolean value.
+	 */
+	public static function sanitize_enable_notes( $value ): bool {
+		$notes_enabled = rest_sanitize_boolean( $value );
+
+		// Get the current setting
+		$current_enabled = self::get_enable_notes();
+
+		// If Notes feature is being toggled, update user preferences
+		if ( $current_enabled !== $notes_enabled ) {
+			global $wpdb;
+			$users = get_users( array( 'fields' => 'ID' ) );
+			
+			if ( ! $notes_enabled ) {
+				// Disabling: Set the Notes column preference to 'hidden' for all users
+				foreach ( $users as $user_id ) {
+					update_user_meta( $user_id, 'logify_wp_col_notes', 'hidden' );
+				}
+			} else {
+				// Enabling: Delete the Notes column preference for all users to reset to default (visible)
+				foreach ( $users as $user_id ) {
+					delete_user_meta( $user_id, 'logify_wp_col_notes' );
+				}
+			}
+		}
+
+		return $notes_enabled;
 	}
 
 	// ---------------------------------------------------------------------------------------------

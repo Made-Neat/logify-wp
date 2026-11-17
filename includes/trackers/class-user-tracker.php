@@ -185,9 +185,14 @@ class User_Tracker
 	 * @param array  $userdata  The data for the user that was registered.
 	 * @param string $client_ip Client IP address.
 	 */
-	public static function on_user_register(int $user_id, array $userdata, ?string $client_ip = null)
+	public static function on_user_register(int $user_id, array $userdata, int $acting_user_id = 0, ?string $client_ip = null)
 	{
-		Logger::log_event('User Registered', User_Utility::load($user_id), null, null, null, false, $client_ip);
+		// Self-registration on the front end has no logged-in actor, so fall back to the
+		// newly registered user and force the event through. An account being created by
+		// an anonymous visitor is precisely what an audit log has to capture.
+		$actor     = $acting_user_id ?: $user_id;
+		$all_users = ( 0 === $acting_user_id );
+		Logger::log_event('User Registered', User_Utility::load($user_id), null, null, $actor, $all_users, $client_ip);
 	}
 
 	/**
@@ -198,7 +203,7 @@ class User_Tracker
 	 * @param WP_User $user     The WP_User object of the user that was deleted.
 	 * @param string  $client_ip Client IP address.
 	 */
-	public static function on_delete_user(int $user_id, ?int $reassign, $serialize_user, ?string $client_ip = null)
+	public static function on_delete_user(int $user_id, ?int $reassign, $serialize_user, int $acting_user_id = 0, ?string $client_ip = null)
 	{
 		global $wpdb;
 
@@ -244,7 +249,7 @@ class User_Tracker
 		}
 
 		// Log the event.
-		Logger::log_event('User Deleted', $user, self::$eventmetas, $props, null, false, $client_ip);
+		Logger::log_event('User Deleted', $user, self::$eventmetas, $props, $acting_user_id ?: null, false, $client_ip);
 	}
 
 	/**

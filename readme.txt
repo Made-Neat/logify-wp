@@ -3,9 +3,9 @@
 Contributors: madeneat
 Tags: activity log, audit log, security, user tracking, event log
 Requires at least: 6.2
-Tested up to: 6.8
+Tested up to: 7.1
 Requires PHP: 8.0
-Stable tag: 1.3.3
+Stable tag: 1.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Website: https://logifywp.com/
@@ -123,6 +123,33 @@ You can report security bugs through the Patchstack Vulnerability Disclosure Pro
 
 = 1.3.3 =
 * bug fixes and added support for beaver builder
+
+= 1.4.0 =
+
+Security:
+* Fixed a SQL injection in the event log filter. The object-type filter came from a cookie and was used in a query without being checked against the known object types.
+* Logged values are now escaped when log details are displayed. A captured value, such as the username from a failed login, could previously contain HTML that ran in an administrator's browser.
+* Adding and editing notes now requires permission to view the activity log.
+* Removed a filter that disabled WordPress comment flood protection site-wide.
+
+Fixed:
+* Core updates, theme switches and deletions, user registrations and deletions, and comment activity were not being recorded at all. The acting user was not passed to the background process that writes the entry, so the event could not be attributed and was discarded without any error.
+* Fatal error when publishing a page built with Beaver Builder. The page saved but the editor reported a failure and kept loading.
+* Fatal error when deleting an event that had notes attached, which could happen after editing a media item without changing anything.
+* The Notes and Actions columns never appeared in the activity log, even with Notes enabled.
+* Action Scheduler cleanup was deleting scheduled task history belonging to other plugins, such as WooCommerce.
+* Action Scheduler cleanup was deleting Logify's own queued entries before they were processed, on sites where WP-Cron is disabled or delayed.
+* Comment updates no longer error when another plugin passes an unexpected value.
+
+Added and changed:
+* Show or hide columns in the activity log, including Notes.
+* Notes is now a single global setting. Enabled shows the checkbox, the Notes column and the Actions column; disabled hides all of them, removes the View Notes page and stops the log page running note queries.
+* Tested with WordPress 7.1.
+
+== Upgrade Notice ==
+
+= 1.4.0 =
+Security and reliability release. Fixes a SQL injection and a stored cross-site scripting issue, and restores logging of core updates, theme changes, user registrations and deletions, and comment activity, which were being silently discarded. Also fixes a fatal error when publishing Beaver Builder pages.
 
 == Links ==
 

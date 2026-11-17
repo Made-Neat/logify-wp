@@ -60,7 +60,12 @@ settings_errors('logify_wp_messages');
 	<h1>Logify WP Settings</h1>
 	<form method="post" action="options.php">
 
-		<?php settings_fields('logify_wp_settings_group'); ?>
+		<?php
+		// CSRF Protection: settings_fields() outputs the nonce field automatically
+		settings_fields('logify_wp_settings_group');
+		// Additional explicit nonce field for enhanced security
+		wp_nonce_field('logify_wp_settings_nonce', 'logify_wp_settings_nonce_field');
+		?>
 
 		<fieldset class="logify-wp-settings-group">
 			<legend>PHP Error</legend>

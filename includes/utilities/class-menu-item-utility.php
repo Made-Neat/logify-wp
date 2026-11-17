@@ -134,7 +134,7 @@ class Menu_Item_Utility extends Object_Utility {
 		}
 
 		// Return a span.
-		return "<span class='logify-wp-deleted-object'>$old_name (deleted)</span>";
+		return "<span class='logify-wp-deleted-object'>" . esc_html( $old_name ) . " (deleted)</span>";
 	}
 
 	// =============================================================================================
@@ -221,7 +221,7 @@ class Menu_Item_Utility extends Object_Utility {
 		return match ( $menu_item['_menu_item_type'] ) {
 			'post_type' => new Object_Reference( 'post', $menu_item['_menu_item_object_id'] ),
 			'taxonomy'  => new Object_Reference( 'term', $menu_item['_menu_item_object_id'] ),
-			'custom'    => "<a href='{$menu_item['_menu_item_url']}' class='logify-wp-object' target='_blank'>{$post->post_title}</a>",
+			'custom'    => "<a href='" . esc_url( $menu_item['_menu_item_url'] ) . "' class='logify-wp-object' target='_blank'>" . esc_html( $post->post_title ) . "</a>",
 			default     => null
 		};
 	}

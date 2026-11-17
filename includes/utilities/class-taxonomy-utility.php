@@ -99,13 +99,13 @@ class Taxonomy_Utility extends Object_Utility {
 			if ( self::can_access_admin_page( $taxonomy_obj ) ) {
 				// Get a link to the taxonomy's admin page.
 				$url = admin_url( "edit-tags.php?taxonomy=$taxonomy" );
-				return "<a href='$url' class='logify-wp-object'>$taxonomy_obj->label</a>";
+				return "<a href='" . esc_url( $url ) . "' class='logify-wp-object'>" . esc_html( $taxonomy_obj->label ) . "</a>";
 			} elseif ( $taxonomy === 'nav_menu' && current_theme_supports( 'menus' ) ) {
 				$url = admin_url( 'nav-menus.php' );
-				return "<a href='$url' class='logify-wp-object'>$taxonomy_obj->label</a>";
+				return "<a href='" . esc_url( $url ) . "' class='logify-wp-object'>" . esc_html( $taxonomy_obj->label ) . "</a>";
 			} else {
 				// Just show the name.
-				return "<span class='logify-wp-object'>$taxonomy_obj->label</span>";
+				return "<span class='logify-wp-object'>" . esc_html( $taxonomy_obj->label ) . "</span>";
 			}
 		}
 
@@ -115,7 +115,7 @@ class Taxonomy_Utility extends Object_Utility {
 		}
 
 		// The taxonomy no longer exists. Construct the 'deleted' span element.
-		return "<span class='logify-wp-deleted-object'>$old_name (deleted)</span>";
+		return "<span class='logify-wp-deleted-object'>" . esc_html( $old_name ) . " (deleted)</span>";
 	}
 
 	// =============================================================================================

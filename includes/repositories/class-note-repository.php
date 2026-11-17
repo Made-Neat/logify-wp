@@ -237,7 +237,7 @@ class Note_Repository extends Repository {
         }
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $deleted = $wpdb->delete(self::get_table_name(), ['id' => $id], ['%d']);
+        $deleted = $wpdb->delete(self::get_table_name(), ['note_id' => $id], ['%d']);
 
         if ($deleted === false) {
             // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
@@ -245,6 +245,39 @@ class Note_Repository extends Repository {
         }
 
         return $deleted > 0;
+    }
+
+    /**
+     * Delete all notes attached to an event.
+     *
+     * Event_Repository::delete() calls this when tearing down an event and its
+     * child records. It was missing until 1.3.5, which made any event deletion a
+     * fatal error (Call to undefined method) after the parent row had already been
+     * removed - reachable in production from Media_Tracker::on_shutdown() when a
+     * media edit nets out to no changes.
+     *
+     * Note that the notes table stores the event id in `activity_id`, not `event_id`.
+     *
+     * @param int $event_id Event ID whose notes should be removed.
+     * @return bool True if any rows were deleted.
+     * @throws RuntimeException If the delete fails.
+     */
+    public static function delete_by_event_id( int $event_id ): bool {
+        global $wpdb;
+
+        // The table is created lazily; treat "no table" as "nothing to delete".
+        if ( ! self::table_exists( self::get_table_name() ) ) {
+            return false;
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        $result = $wpdb->delete( self::get_table_name(), array( 'activity_id' => $event_id ), array( '%d' ) );
+
+        if ( $result === false ) {
+            throw new RuntimeException( esc_html( "Failed to delete notes for event $event_id" ) );
+        }
+
+        return (bool) $result;
     }
 
     /**
@@ -264,7 +297,7 @@ class Note_Repository extends Repository {
         $table = esc_sql($this->table_name);
         return $this->wpdb->get_results(
             // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Static Table Name
-            $this->wpdb->prepare("SELECT * FROM %s WHERE note LIKE %s", $table, $like)
+            $this->wpdb->prepare("SELECT * FROM %i WHERE note LIKE %s", $table, $like)
         );
     }
 

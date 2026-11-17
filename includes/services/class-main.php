@@ -22,6 +22,13 @@ class Main {
 	 * Initialize the plugin.
 	 */
 	public static function init() {
+		// Skip initialization if plugin is being deleted
+		if ( isset( $_REQUEST['action'] ) && $_REQUEST['action'] === 'delete-plugin' ) {
+			if ( isset( $_REQUEST['plugin'] ) && $_REQUEST['plugin'] === 'logify-wp/logify-wp.php' ) {
+				return;
+			}
+		}
+
 		$error_tracking_enabled = Plugin_Settings::is_php_error_tracking_enabled();
 
 		if ( $error_tracking_enabled ) {

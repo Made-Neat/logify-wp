@@ -133,9 +133,9 @@ class Theme_Utility extends Object_Utility {
 			$name = $theme->get( 'Name' );
 			$url  = $theme->get( 'ThemeURI' );
 			if ( $url ) {
-				return "<a href='$url' class='logify-wp-object' target='_blank'>$name</a>";
+				return "<a href='" . esc_url( $url ) . "' class='logify-wp-object' target='_blank'>" . esc_html( $name ) . "</a>";
 			} else {
-				return "<span class='logify-wp-object'>$name</span>";
+				return "<span class='logify-wp-object'>" . esc_html( $name ) . "</span>";
 			}
 		}
 
@@ -145,7 +145,7 @@ class Theme_Utility extends Object_Utility {
 		}
 
 		// Return a span with the old name.
-		return "<span class='logify-wp-deleted-object'>$old_name (deleted)</span>";
+		return "<span class='logify-wp-deleted-object'>" . esc_html( $old_name ) . " (deleted)</span>";
 	}
 
 	// =============================================================================================

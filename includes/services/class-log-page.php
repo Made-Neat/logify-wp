@@ -22,13 +22,37 @@ class Log_Page {
 	 */
 	public static function init() {
 		add_action( 'wp_ajax_logify_wp_fetch_logs', array( __CLASS__, 'fetch_logs' ) );
-		add_action('wp_ajax_logify_update_note', array( __CLASS__, 'logify_update_note' ) );
-		add_action('wp_ajax_logify_add_note', array( __CLASS__, 'logify_add_note' ) );
+		add_action( 'wp_ajax_logify_update_note', array( __CLASS__, 'logify_update_note' ) );
+		add_action( 'wp_ajax_logify_add_note', array( __CLASS__, 'logify_add_note' ) );
+		add_action( 'wp_ajax_logify_wp_save_column_preference', array( __CLASS__, 'save_column_preference' ) );
+	}
+
+	/**
+	 * Refuse the request if the Notes feature is switched off in settings.
+	 *
+	 * Notes are a global setting: when it is off, nothing note-related should exist -
+	 * no menu item, no columns, no queries, and no write endpoints. The Notes_Page
+	 * handlers already did this; the Log_Page twins did not, so notes could still be
+	 * created and edited through the log page while the feature was disabled.
+	 *
+	 * @return void
+	 */
+	private static function ensure_notes_enabled(): void {
+		if ( ! Plugin_Settings::get_enable_notes() ) {
+			wp_send_json_error( array( 'message' => 'Notes feature is not enabled in settings.' ), 403 );
+		}
 	}
 
 	public static function logify_update_note() {
 		
 		check_ajax_referer('logify-wp-log-page', 'security');
+
+		// Notes are a global setting, and read access to the log is not permission to
+		// write notes. Both checks were missing here; the Notes_Page twins had them.
+		self::ensure_notes_enabled();
+		if ( ! Access_Control::can_access_log_page() ) {
+			wp_send_json_error( array( 'message' => 'You do not have permission to do this.' ), 403 );
+		}
 		$note_id = isset($_POST['note_id']) ? intval($_POST['note_id']) : 0;
 		$event_id = isset($_POST['event_id']) ? intval($_POST['event_id']) : 0;
 
@@ -74,6 +98,13 @@ class Log_Page {
 	public static function logify_add_note() {
 		
 		check_ajax_referer('logify-wp-log-page', 'security');
+
+		// Notes are a global setting, and read access to the log is not permission to
+		// write notes. Both checks were missing here; the Notes_Page twins had them.
+		self::ensure_notes_enabled();
+		if ( ! Access_Control::can_access_log_page() ) {
+			wp_send_json_error( array( 'message' => 'You do not have permission to do this.' ), 403 );
+		}
 	
 		// Validate input
 		if (empty($_POST['note_content'])) {
@@ -128,6 +159,54 @@ class Log_Page {
 	}
 
 	/**
+	 * Save column visibility preferences to user meta (called via AJAX).
+	 *
+	 * @return void
+	 */
+	public static function save_column_preference() {
+		// Verify the nonce.
+		check_ajax_referer( 'logify-wp-log-page', 'security' );
+
+		// Ensure user is logged in.
+		if ( ! is_user_logged_in() ) {
+			wp_send_json_error( array( 'message' => 'User not logged in.' ), 403 );
+		}
+
+		// Get and validate the column name.
+		$column = isset( $_POST['column'] ) ? sanitize_key( wp_unslash( $_POST['column'] ) ) : '';
+		$visible = isset( $_POST['visible'] ) ? (bool) $_POST['visible'] : false;
+
+		// Validate column name.
+		$allowed_columns = array( 'logify_wp_col_user', 'logify_wp_col_ip', 'logify_wp_col_notes' );
+		if ( ! in_array( $column, $allowed_columns, true ) ) {
+			wp_send_json_error( array( 'message' => 'Invalid column.' ), 400 );
+		}
+
+		$user_id = get_current_user_id();
+
+		// Save the preference to user meta.
+		if ( $visible ) {
+			// For Notes: default is visible, so remove the meta key.
+			// For User/IP: only save if visible.
+			if ( 'logify_wp_col_notes' === $column ) {
+				delete_user_meta( $user_id, $column );
+			} else {
+				update_user_meta( $user_id, $column, 'visible' );
+			}
+		} else {
+			// For Notes: save as 'hidden'.
+			// For User/IP: remove the meta key (hidden is default).
+			if ( 'logify_wp_col_notes' === $column ) {
+				update_user_meta( $user_id, $column, 'hidden' );
+			} else {
+				delete_user_meta( $user_id, $column );
+			}
+		}
+
+		wp_send_json_success( array( 'message' => 'Column preference saved.' ) );
+	}
+
+	/**
 	 * Get the user's preference for the number of items to show per page.
 	 *
 	 * @return int The number of items to show per page.
@@ -135,6 +214,53 @@ class Log_Page {
 	public static function get_items_per_page(): int {
 		$page_length = (int) get_user_option( 'logify_wp_events_per_page', get_current_user_id() );
 		return $page_length ? $page_length : 20;
+	}
+
+	/**
+	 * Batch-load notes for multiple event IDs to avoid N+1 query problem.
+	 *
+	 * @param array $event_ids Array of event IDs.
+	 * @return array Associative array with event_id as key and note object as value.
+	 */
+	public static function batch_load_notes( array $event_ids ): array {
+		if ( empty( $event_ids ) ) {
+			return array();
+		}
+
+		global $wpdb;
+
+		// Check if notes table exists.
+		$notes_table = Note_Repository::get_table_name();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$table_exists = $wpdb->get_var(
+			$wpdb->prepare( 'SHOW TABLES LIKE %s', $notes_table )
+		) === $notes_table;
+
+		if ( ! $table_exists ) {
+			return array();
+		}
+
+		// Build the IN clause for the query.
+		$placeholders = implode( ',', array_fill( 0, count( $event_ids ), '%d' ) );
+		$query        = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			"SELECT * FROM {$notes_table} WHERE activity_id IN ($placeholders) ORDER BY note_id DESC",
+			$event_ids
+		);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results( $query );
+
+		// Map notes by event ID, keeping only the most recent note per event.
+		$notes_map = array();
+		foreach ( $results as $note_row ) {
+			$event_id = (int) $note_row->activity_id;
+			if ( ! isset( $notes_map[ $event_id ] ) ) {
+				$notes_map[ $event_id ] = $note_row;
+			}
+		}
+
+		return $notes_map;
 	}
 
 	/**
@@ -164,6 +290,7 @@ class Log_Page {
 			'event_type',
 			'object_name',
 			'object_type',
+			'note_content',
 			'edit_link',
 		);
 
@@ -212,7 +339,18 @@ class Log_Page {
 		if ( ! empty( $_COOKIE['object_types'] ) ) {
 			$cookie_value          = sanitize_text_field( wp_unslash( $_COOKIE['object_types'] ) );
 			$selected_object_types = json_decode( stripslashes( $cookie_value ), true );
-			$object_types          = array_keys( array_filter( $selected_object_types ) );
+			$object_types          = is_array( $selected_object_types )
+				? array_keys( array_filter( $selected_object_types ) )
+				: array();
+
+			// Only ever accept object types we recognise. The cookie is client-controlled
+			// and these values reach the WHERE clause, so an allow-list is mandatory here.
+			$object_types = array_values( array_intersect( $object_types, $valid_object_types ) );
+
+			// An empty or entirely invalid cookie means "no filter", not "match nothing".
+			if ( ! $object_types ) {
+				$object_types = $valid_object_types;
+			}
 		} else {
 			$object_types = $valid_object_types;
 		}
@@ -323,10 +461,12 @@ class Log_Page {
 
 			// Filter by the remaining object types.
 			if ( $object_types ) {
-				$object_type_string = implode( ',', array_map( fn( $object_type ) => "'$object_type'", $object_types ) );
-				$or_parts[]         = "object_type IN ($object_type_string)";
-			} else {
-				//$or_parts[] = 'object_type IS NULL';
+				// Bind as parameters. Never interpolate these values, even though they are
+				// allow-listed above; prepare() treats the assembled WHERE fragment as
+				// literal SQL, so interpolation here would be an injection point.
+				$placeholders = implode( ',', array_fill( 0, count( $object_types ), '%s' ) );
+				$or_parts[]   = "object_type IN ($placeholders)";
+				$where_args   = array_merge( $where_args, $object_types );
 			}
 
 			// Add the OR parts to the where clause.
@@ -440,6 +580,14 @@ class Log_Page {
 		// Construct the data array to return to the client.
 		$data = array();
 
+		// -----------------------------------------------------------------------------------------
+		// Batch-load all notes for the events to avoid N+1 queries.
+		// Notes are a global setting. With it off, skip the note queries entirely rather
+		// than loading rows for a column that will not be rendered.
+		$notes_enabled = Plugin_Settings::get_enable_notes();
+		$event_ids     = array_column( $recordset, 'event_id' );
+		$notes_map     = $notes_enabled ? self::batch_load_notes( $event_ids ) : array();
+
 		foreach ( $recordset as $record ) {
 			// Construct the Event object.
 			$event = Event_Repository::load( $record['event_id'] );
@@ -473,16 +621,31 @@ class Log_Page {
 			// Format the details.
 			$item['details'] = self::format_details( $event );
 
-			$note = Note_Repository::load_by_event_id( $record['event_id'] );
-			if (get_option('logify_wp_enable_notes', false)) {
-				if (isset($note->user_id) && $note->user_id == get_current_user_id()) {
-					$item['edit_link'] = '<a href="#" class="edit-note-link" data-note-id="' . intval($note->note_id) . '" data-note-content="' . esc_attr($note->note) . '">View/Edit Note</a>';
-				}else{
-					$item['edit_link'] = '<a href="#" class="edit-note-link" data-event-id="' . intval($event->id) . '">Add Note</a>';
+			// Get the note for this event (from pre-loaded notes_map).
+			$note = $notes_enabled && isset( $notes_map[ $record['event_id'] ] ) ? $notes_map[ $record['event_id'] ] : null;
+
+			// Handle note content.
+			if ( $note && ! empty( $note->note ) ) {
+				// Strip HTML tags and escape for safe display.
+				$note_text = wp_strip_all_tags( $note->note );
+				$item['note_content'] = esc_html( $note_text );
+			} else {
+				$item['note_content'] = '';
+			}
+
+			// Handle edit link for notes.
+			if ( $notes_enabled ) {
+				if ( $note && isset( $note->user_id ) && (int) $note->user_id === (int) get_current_user_id() ) {
+					// Current user owns this note, allow edit.
+					$item['edit_link'] = '<a href="#" class="edit-note-link" data-note-id="' . intval( $note->note_id ) . '" data-note-content="' . esc_attr( $note->note ) . '">View/Edit Note</a>';
+				} else {
+					// Either no note exists or current user doesn't own it, allow adding/creating.
+					$item['edit_link'] = '<a href="#" class="edit-note-link" data-event-id="' . intval( $event->id ) . '">Add Note</a>';
 				}
-			}else{
+			} else {
 				$item['edit_link'] = '';
 			}
+
 			// Add the item to the data array.
 			$data[] = $item;
 		}
@@ -588,7 +751,9 @@ class Log_Page {
 		$html .= "<div class='logify-wp-details-table-wrapper'>\n";
 		$html .= "<table class='logify-wp-details-table logify-wp-eventmeta-table'>\n";
 		foreach ( $event->eventmetas as $eventmeta ) {
-			$label = Strings::key_to_label( $eventmeta->meta_key );
+			// Meta keys are attacker-influenced (e.g. username_entered). Escape the
+			// label; the value is escaped inside Types::value_to_html().
+			$label = esc_html( Strings::key_to_label( $eventmeta->meta_key ) );
 			$value = Types::value_to_html( $eventmeta->meta_key, $eventmeta->meta_value );
 			$html .= "<tr><th>$label</th><td>$value</td></tr>";
 		}
@@ -680,7 +845,7 @@ class Log_Page {
 			default  => Strings::key_to_label( $event->object_type, true ),
 		};
 
-		$html .= "<h4>$object_type_title Details</h4>\n";
+		$html .= '<h4>' . esc_html( $object_type_title ) . " Details</h4>\n";
 
 		// Start scrollable wrapper.
 		$html .= "<div class='logify-wp-details-table-wrapper'>\n";
@@ -704,8 +869,8 @@ class Log_Page {
 			// Start row.
 			$html .= '<tr>';
 
-			// Property key.
-			$key   = Strings::key_to_label( $prop->key );
+			// Property key. Keys are derived from logged option/meta names, so escape.
+			$key   = esc_html( Strings::key_to_label( $prop->key ) );
 			$html .= "<th>$key</th>";
 
 			// Current or old value.

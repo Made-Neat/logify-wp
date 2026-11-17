@@ -305,14 +305,29 @@ class Admin {
 
 		// Scripts
 		$script_handle = self::enqueue_script($script_file, array('jquery'), 'auto', true);
+		
+		// Prepare localization data.
+		$localization_data = array(
+			'ajaxUrl'    => admin_url('admin-ajax.php'),
+			'ajaxNonce'  => wp_create_nonce($nonce_action),
+			'dateFormat' => $date_format,
+		);
+
+		// Add column preferences for the log page.
+		if ( strpos( $script_file, 'log-page.js' ) !== false ) {
+			$user_id = get_current_user_id();
+			$localization_data['columnPreferences'] = array(
+				'logify_wp_col_user'  => get_user_meta( $user_id, 'logify_wp_col_user', true ),
+				'logify_wp_col_ip'    => get_user_meta( $user_id, 'logify_wp_col_ip', true ),
+				'logify_wp_col_notes' => get_user_meta( $user_id, 'logify_wp_col_notes', true ),
+			);
+			$localization_data['notesEnabled'] = Plugin_Settings::get_enable_notes();
+		}
+
 		wp_localize_script(
 			$script_handle,
 			'logifyWpLogPage',
-			array(
-				'ajaxUrl'    => admin_url('admin-ajax.php'),
-				'ajaxNonce'  => wp_create_nonce($nonce_action),
-				'dateFormat' => $date_format,
-			)
+			$localization_data
 		);
 
 		// Include jQuery UI datepicker

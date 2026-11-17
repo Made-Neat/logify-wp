@@ -104,14 +104,33 @@ final class BeaverBuilder_Tracker {
     /**
      * Called when a Beaver Builder layout is saved (published).
      *
-     * @param int   $post_id  ID of the post.
-     * @param bool  $publish  Whether the layout was published.
-     * @param array $data     Layout data.
-     * @param array $settings Layout settings.
+     * Parameters are deliberately untyped. This is a THIRD-PARTY hook: Beaver Builder
+     * decides what it passes, and it can change between their releases. It fires
+     *   do_action( 'fl_builder_after_save_layout', $post_id, $publish, $data, $settings )
+     * where $settings comes from FLBuilderModel::get_layout_settings() and is a stdClass,
+     * not an array. Declaring `array $settings` turned that into an uncaught TypeError
+     * inside Beaver Builder's save AJAX request, which killed the editor's save response
+     * on a live client site.
+     *
+     * Never type-hint parameters on hooks owned by other plugins or by core.
+     *
+     * $data and $settings are not used here; they are accepted only to match the hook's
+     * arity, and defaulted so a future Beaver Builder release passing fewer arguments
+     * cannot fatal either.
+     *
+     * @param mixed $post_id  ID of the post.
+     * @param mixed $publish  Whether the layout was published.
+     * @param mixed $data     Layout data. Unused.
+     * @param mixed $settings Layout settings. Unused, and not necessarily an array.
      */
-    public static function on_layout_saved( int $post_id, bool $publish, array $data, array $settings ): void {
+    public static function on_layout_saved( $post_id, $publish = false, $data = null, $settings = null ): void {
         // Only log if the layout was actually published.
         if ( ! $publish ) {
+            return;
+        }
+
+        $post_id = (int) $post_id;
+        if ( $post_id <= 0 ) {
             return;
         }
 
@@ -139,7 +158,12 @@ final class BeaverBuilder_Tracker {
      *
      * @param int $post_id ID of the template post.
      */
-    public static function on_template_saved( int $post_id ): void {
+    public static function on_template_saved( $post_id ): void {
+        $post_id = (int) $post_id;
+        if ( $post_id <= 0 ) {
+            return;
+        }
+
         $post = get_post( $post_id );
         if ( ! $post ) {
             return;
@@ -164,7 +188,12 @@ final class BeaverBuilder_Tracker {
      * @param int  $post_id ID of the post.
      * @param bool $publish Whether the draft was published (usually false for drafts).
      */
-    public static function on_draft_saved( int $post_id, bool $publish ): void {
+    public static function on_draft_saved( $post_id, $publish = false ): void {
+        $post_id = (int) $post_id;
+        if ( $post_id <= 0 ) {
+            return;
+        }
+
         $post = get_post( $post_id );
         if ( ! $post ) {
             return;
