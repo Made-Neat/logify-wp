@@ -4,6 +4,43 @@ jQuery(($) => {
     let urlParams = new URLSearchParams(window.location.search);
     const eventIdToExpand = urlParams.get('event_id');
 
+    // Helper function to find column index by data attribute using DataTables API.
+    let getColumnIndexByData = (dataName) => {
+        let columnIndex = null;
+        let columns = eventsTable.settings()[0].aoColumns;
+        columns.forEach((col, idx) => {
+            if (col.data === dataName) {
+                columnIndex = idx;
+            }
+        });
+        return columnIndex;
+    };
+
+    // Helper function to escape HTML attributes.
+    let esc_attr = (text) => {
+        if (!text) return '';
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    };
+
+    // Get column preferences from PHP localization.
+    let getColumnPreferences = () => {
+        if (logifyWpLogPage && logifyWpLogPage.columnPreferences) {
+            return logifyWpLogPage.columnPreferences;
+        }
+        return {
+            logify_wp_col_user: '',
+            logify_wp_col_ip: '',
+            logify_wp_col_notes: ''
+        };
+    };
+
+    let columnPrefs = getColumnPreferences();
+
     // Set up the datatable.
     let eventsTable = $('#logify-wp-activity-log').DataTable({
         processing: true,
@@ -17,11 +54,11 @@ jQuery(($) => {
             data: (d) => {
                 d.action = 'logify_wp_fetch_logs';
                 d.security = logifyWpLogPage.ajaxNonce;
-                console.log('Sending AJAX request with data:', d);
             },
             error: (xhr, error, code) => {
-                console.log('AJAX error:', error);
-                console.log('AJAX error code:', code);
+                if (window.console && window.console.error) {
+                    console.error('AJAX error loading logs:', error);
+                }
             }
         },
         columns: [
@@ -39,12 +76,35 @@ jQuery(($) => {
                 visible: false
             },
             {
-                data: "edit_link",
+                data: "note_content",
+                // NOTE: visibility is set in columnDefs (targets 7). Do NOT add a
+                // `visible` key here. DataTables applies columnDefs first and the
+                // columns array second, so anything declared here silently overrides
+                // the computed value - which is what hid the Notes column entirely.
                 render: (data, type, row) => {
-                    return data ? data : ''; // Render the HTML link
+                    if (!data) {
+                        return '<span class="logify-wp-no-note">No notes</span>';
+                    }
+                    // Strip HTML tags for display preview
+                    let plainText = data.replace(/<[^>]*>/g, '');
+                    // Truncate long notes to 100 characters
+                    let truncated = plainText.length > 100 ? plainText.substring(0, 100) + '...' : plainText;
+                    // Escape HTML entities for safe display
+                    truncated = esc_attr(truncated);
+                    let fullText = esc_attr(plainText);
+                    return '<span class="logify-wp-note-preview" title="' + fullText + '">' + truncated + '</span>';
                 },
-                orderable: false, // Prevent sorting on this column
-                searchable: false // Prevent searching on this column
+                orderable: false,
+                searchable: false
+            },
+            {
+                data: "edit_link",
+                // Visibility set in columnDefs (targets 8). See the note above.
+                render: (data, type, row) => {
+                    return data ? data : '';
+                },
+                orderable: false,
+                searchable: false
             }
         ],
         order: [[1, 'desc']],
@@ -52,45 +112,136 @@ jQuery(($) => {
             topStart: null,
             topEnd: null,
         },
+        columnDefs: [
+            {
+                targets: 2, // User column
+                visible: columnPrefs.logify_wp_col_user === 'visible'
+            },
+            {
+                targets: 3, // IP column
+                visible: columnPrefs.logify_wp_col_ip === 'visible'
+            },
+            {
+                targets: 7, // Notes column
+                visible: logifyWpLogPage && logifyWpLogPage.notesEnabled && columnPrefs.logify_wp_col_notes !== 'hidden'
+            },
+            {
+                targets: 8, // Actions column (only contains note actions)
+                visible: logifyWpLogPage && logifyWpLogPage.notesEnabled
+            }
+        ],
         paging: true,
         lengthChange: false,
-        // Get the page length from the per_page screen option.
         pageLength: +$('#logify_wp_events_per_page').val(),
         createdRow: (row, data, dataIndex) => {
-            // Get the event ID of this row.
             const $row = $(row);
             const eventId = $row.find('td:first-child').text();
-
-            // Add CSS classes to the tr element, and set the event-id.
             $row.addClass('logify-wp-summary-row').attr('data-event-id', eventId);
         },
         drawCallback: function (settings) {
-            // Check if we need to expand a row.
             if (!eventIdToExpand) {
                 return;
             }
-
-            // Find the row with this event ID.
             let $row = $(`tr[data-event-id="${eventIdToExpand}"]`);
             if ($row.length) {
-                // Expand the details row.
                 showDetailsRow($row);
-                // Scroll the summary and details rows into view.
                 $row.get(0).scrollIntoView({ behavior: 'smooth' });
             }
+        },
+        initComplete: function() {
+            initColumnVisibilityToggles();
         }
     });
 
     // Show the details row for a given summary row.
     let showDetailsRow = $tr => {
-        // Get the datatable row object.
         let row = eventsTable.row($tr);
-        // Add CSS classes to the details row.
         let classes = 'logify-wp-details-row shown';
-        // Show the details row.
         row.child(row.data().details, classes).show();
-        // Add the shown class to the summary row.
         $tr.addClass('shown');
+    };
+
+    // Initialize column visibility toggles
+    let initColumnVisibilityToggles = () => {
+        // Get current column preferences.
+        let displayUser = columnPrefs.logify_wp_col_user === 'visible';
+        let displayIp = columnPrefs.logify_wp_col_ip === 'visible';
+        let displayNotes = columnPrefs.logify_wp_col_notes !== 'hidden';
+        let notesEnabled = logifyWpLogPage && logifyWpLogPage.notesEnabled;
+
+        // Create column toggle UI (moved to CSS instead of inline styles).
+        // Only show notes checkbox if notes feature is enabled
+        let notesCheckboxHtml = '';
+        if (notesEnabled) {
+            notesCheckboxHtml = `
+                    <label class="logify-wp-toggle-label-item">
+                        <input type="checkbox" class="logify-wp-col-toggle" data-column-name="logify_wp_col_notes" aria-label="Toggle Notes column visibility" ${displayNotes ? 'checked' : ''}>
+                        Notes
+                    </label>
+            `;
+        }
+
+        let toggleHtml = `
+            <div id="logify-wp-column-toggle" class="logify-wp-column-toggle-container">
+                <strong class="logify-wp-toggle-label">Show/Hide Columns:</strong>
+                <div class="logify-wp-toggle-options">
+                    <label class="logify-wp-toggle-label-item">
+                        <input type="checkbox" class="logify-wp-col-toggle" data-column-name="logify_wp_col_user" aria-label="Toggle User column visibility" ${displayUser ? 'checked' : ''}>
+                        User
+                    </label>
+                    <label class="logify-wp-toggle-label-item">
+                        <input type="checkbox" class="logify-wp-col-toggle" data-column-name="logify_wp_col_ip" aria-label="Toggle Source IP column visibility" ${displayIp ? 'checked' : ''}>
+                        Source IP
+                    </label>
+                    ${notesCheckboxHtml}
+                </div>
+            </div>
+        `;
+        
+        // Insert before the table.
+        $(toggleHtml).insertBefore('#logify-wp-activity-log');
+        
+        // Handle column toggle clicks.
+        $(document).on('change', '.logify-wp-col-toggle', function() {
+            let columnName = $(this).data('column-name');
+            let isChecked = $(this).is(':checked');
+            
+            // Convert meta name to data name and look up column index using DataTables API.
+            let dataName = getColumnDataFromName(columnName);
+            let columnIndex = getColumnIndexByData(dataName);
+            
+            if (columnIndex !== null) {
+                eventsTable.column(columnIndex).visible(isChecked);
+                eventsTable.draw(); // Redraw table to apply visibility changes
+            }
+            
+            // Save preference via AJAX.
+            $.ajax({
+                url: logifyWpLogPage.ajaxUrl,
+                method: 'POST',
+                data: {
+                    action: 'logify_wp_save_column_preference',
+                    security: logifyWpLogPage.ajaxNonce,
+                    column: columnName,
+                    visible: isChecked ? 1 : 0
+                },
+                error: (xhr, status, error) => {
+                    if (window.console && window.console.error) {
+                        console.error('Failed to save column preference:', error);
+                    }
+                }
+            });
+        });
+    };
+
+    // Helper function to convert column meta name to DataTables column data name.
+    let getColumnDataFromName = (metaName) => {
+        const mapping = {
+            'logify_wp_col_user': 'display_name',
+            'logify_wp_col_ip': 'user_ip',
+            'logify_wp_col_notes': 'note_content'
+        };
+        return mapping[metaName] || null;
     };
 
     // Add event listener for opening and closing details

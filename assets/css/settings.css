@@ -26,10 +26,6 @@ body.logify-wp_page_logify-wp-settings {
   box-shadow: 0 0 0 1px #e04848;
 }
 
-#logify-wp-submit-button {
-  width: 110px;
-}
-
 .logify-wp-settings-group {
   border: solid 1px #ccc;
   border-radius: 0.5rem;

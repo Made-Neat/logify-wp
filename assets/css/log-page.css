@@ -387,3 +387,84 @@ body .ui-dialog .ui-dialog-title {
 .ui-dialog-titlebar.ui-corner-all.ui-widget-header.ui-helper-clearfix.ui-draggable-handle{
   display: flex;
 }
+
+/* Column Toggle UI */
+#logify-wp-column-toggle {
+  margin-bottom: 15px;
+  padding: 10px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+}
+
+#logify-wp-column-toggle,
+.logify-wp-column-toggle-container {
+  margin-bottom: 15px;
+  padding: 10px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+}
+
+.logify-wp-toggle-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #333;
+}
+
+.logify-wp-toggle-options {
+  margin-top: 8px;
+}
+
+.logify-wp-toggle-label-item {
+  display: inline-block;
+  margin-right: 15px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.logify-wp-col-toggle {
+  margin-right: 5px;
+  cursor: pointer;
+}
+
+/* Remove old inline style rules */
+#logify-wp-column-toggle strong {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #333;
+}
+
+#logify-wp-column-toggle label {
+  display: inline-block;
+  margin-right: 15px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+#logify-wp-column-toggle input[type="checkbox"] {
+  margin-right: 5px;
+  cursor: pointer;
+}
+
+/* Notes column styling */
+.logify-wp-note-preview {
+  display: block;
+  max-width: 300px;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  padding: 5px;
+  background: #fafafa;
+  border-radius: 3px;
+  border-left: 3px solid #0073aa;
+  font-size: 0.9em;
+}
+
+.logify-wp-no-note {
+  color: #999;
+  font-style: italic;
+}

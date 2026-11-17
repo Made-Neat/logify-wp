@@ -250,7 +250,9 @@ class Async_Tracker
      */
     public static function async_user_register(int $user_id, array $userdata): void
     {
-        self::scheduleAction('middle_user_register', [$user_id, $userdata], true);
+        // On front-end self-registration the current user is 0. The consumer falls back
+        // to treating the newly registered user as the actor in that case.
+        self::scheduleAction('middle_user_register', [$user_id, $userdata, get_current_user_id()], true);
     }
 
     /**
@@ -264,7 +266,7 @@ class Async_Tracker
      */
     public static function async_delete_user(int $user_id, ?int $reassign, WP_User $user): void
     {
-        self::scheduleAction('middle_delete_user', [$user_id, $reassign, serialize($user)], true);
+        self::scheduleAction('middle_delete_user', [$user_id, $reassign, serialize($user), get_current_user_id()], true);
     }
 
     /**
@@ -382,7 +384,7 @@ class Async_Tracker
 
         self::scheduleAction(
             'middle_switch_theme',
-            [$new_name, $new_payload, $old_payload],
+            [$new_name, $new_payload, $old_payload, get_current_user_id()],
             true // include client IP
         );
     }
@@ -396,7 +398,7 @@ class Async_Tracker
      */
     public static function async_delete_theme(string $stylesheet): void
     {
-        self::scheduleAction('middle_delete_theme', [$stylesheet], true);
+        self::scheduleAction('middle_delete_theme', [$stylesheet, get_current_user_id()], true);
     }
 
     /* =======================================================================
@@ -701,7 +703,12 @@ class Async_Tracker
      */
     public static function async_core_updated_successfully(string $wp_version): void
     {
-        self::scheduleAction('middle_core_updated_successfully', [$wp_version]);
+        // Capture the acting user HERE. Action Scheduler workers run unauthenticated
+        // as user 0, so an acting user not carried across the queue is lost, and
+        // Event::create() then discards the event. See F-09.
+        // Core updates can also be automatic, in which case there is no user at all -
+        // the consumer passes all_users:true so the event is recorded either way.
+        self::scheduleAction('middle_core_updated_successfully', [$wp_version, get_current_user_id()]);
     }
 
     /**
@@ -963,7 +970,7 @@ class Async_Tracker
             return;
         }
 
-        self::scheduleAction('middle_wp_insert_comment', [$id, self::postFilteredData($comment)]);
+        self::scheduleAction('middle_wp_insert_comment', [$id, self::postFilteredData($comment), get_current_user_id()]);
     }
 
     /**
@@ -973,15 +980,34 @@ class Async_Tracker
      * @param array          $comment    Original comment array.
      * @param array          $commentarr Extra data.
      *
-     * @return void
+     * @return array|WP_Error
      */
-    public static function async_wp_update_comment_data(array|WP_Error $data, array $comment, array $commentarr): void
+    public static function async_wp_update_comment_data($data, $comment = [], $commentarr = [])
     {
+        // Untyped on purpose. This is a CORE filter, and its value is whatever the
+        // previous callback in the chain returned - which may be another plugin, and may
+        // not be an array or a WP_Error. Declaring types here would turn someone else's
+        // odd return value into an uncaught TypeError inside wp_update_comment(), the
+        // same failure mode that took down Beaver Builder saves. See
+        // tests/test-hook-signatures.php.
+        //
+        // This callback is observational only: it MUST return $data byte-identical to
+        // what it received. wp_update_comment() runs
+        //   $data = wp_array_slice_assoc( $data, $keys );
+        //   $wpdb->update( $wpdb->comments, $data, ... );
+        // so a filter that alters or reduces $data produces an empty SET clause and a
+        // SQL error. Never modify $data here.
         if (!Plugin_Settings::get_comment_tracking_state()) {
-            return;
+            return $data;
         }
 
-        self::scheduleAction('middle_wp_update_comment_data', [$data, $comment, $commentarr]);
+        // Only enqueue when the payload is the shape we expect. Anything else is passed
+        // straight through untouched.
+        if (is_array($data) && is_array($comment) && is_array($commentarr)) {
+            self::scheduleAction('middle_wp_update_comment_data', [$data, $comment, $commentarr]);
+        }
+
+        return $data;
     }
 
     /**
@@ -1015,7 +1041,7 @@ class Async_Tracker
             return;
         }
 
-        self::scheduleAction('middle_delete_comment', [$comment_id, self::postFilteredData($comment)]);
+        self::scheduleAction('middle_delete_comment', [$comment_id, self::postFilteredData($comment), get_current_user_id()]);
     }
 
     /**
@@ -1033,7 +1059,7 @@ class Async_Tracker
             return;
         }
 
-        self::scheduleAction('middle_transition_comment_status', [$new_status, $old_status, self::postFilteredData($comment)]);
+        self::scheduleAction('middle_transition_comment_status', [$new_status, $old_status, self::postFilteredData($comment), get_current_user_id()]);
     }
 
     /**
@@ -1088,17 +1114,37 @@ class Async_Tracker
 
         $clone = clone $post;
 
-        // Keep only the fields you care about
-        $allowed = [
-            'ID',
-            'post_title',
-            'post_status',
-            'post_type',
-            'post_author',
-            'post_date',
-            'post_modified',
-            'guid',
-        ];
+        // Keep only the fields we need. The allow-list is per type: a WP_Comment has
+        // none of WP_Post's properties, so applying the post list to a comment stripped
+        // every field and produced O:10:"WP_Comment":0:{} - an object with no comment_ID,
+        // no author and no content. That is F-10, and it is why comment logging produced
+        // empty entries. Verified by round-tripping a real WP_Comment through this method.
+        if ($post instanceof WP_Comment) {
+            $allowed = [
+                'comment_ID',
+                'comment_post_ID',
+                'comment_author',
+                'comment_author_email',
+                'comment_author_url',
+                'comment_date',
+                'comment_content',
+                'comment_approved',
+                'comment_type',
+                'comment_parent',
+                'user_id',
+            ];
+        } else {
+            $allowed = [
+                'ID',
+                'post_title',
+                'post_status',
+                'post_type',
+                'post_author',
+                'post_date',
+                'post_modified',
+                'guid',
+            ];
+        }
 
         foreach (get_object_vars($clone) as $prop => $_) {
             if (!in_array($prop, $allowed, true)) {

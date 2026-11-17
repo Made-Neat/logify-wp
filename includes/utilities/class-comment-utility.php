@@ -140,7 +140,7 @@ class Comment_Utility extends Object_Utility {
 			// Get the comment URL. This will vary by comment status.
 			if ( $comment->comment_approved === 'post-trashed' ) {
 				// If the comment is attached to a trashed post, there's no way to link to it.
-				return "<span class='logify-wp-object'>$title</span>";
+				return "<span class='logify-wp-object'>" . esc_html( $title ) . "</span>";
 			} elseif ( $comment->comment_approved === 'trash' ) {
 				// If the comment is trashed, link to the comment in the trash.
 				$url = admin_url( "edit-comments.php?comment_status=trash#comment-$comment_id" );
@@ -150,7 +150,7 @@ class Comment_Utility extends Object_Utility {
 			}
 
 			// Return the link.
-			return "<a href='$url' class='logify-wp-object'>$title</a>";
+			return "<a href='" . esc_url( $url ) . "' class='logify-wp-object'>" . esc_html( $title ) . "</a>";
 		}
 
 		// Make a backup title.
@@ -159,7 +159,7 @@ class Comment_Utility extends Object_Utility {
 		}
 
 		// The comment no longer exists. Construct the 'deleted' span element.
-		return "<span class='logify-wp-deleted-object'>$old_snippet (deleted)</span>";
+		return "<span class='logify-wp-deleted-object'>" . esc_html( $old_snippet ) . " (deleted)</span>";
 	}
 
 	// =============================================================================================

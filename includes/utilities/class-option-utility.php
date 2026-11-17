@@ -227,7 +227,7 @@ class Option_Utility extends Object_Utility {
 		// If the option exists, get a span.
 		if ( $option_value !== null ) {
 			$name = self::get_name( $option_name );
-			return "<span class='logify-wp-object'>$name</span>";
+			return "<span class='logify-wp-object'>" . esc_html( $name ) . "</span>";
 		}
 
 		// Make a backup name.
@@ -236,7 +236,7 @@ class Option_Utility extends Object_Utility {
 		}
 
 		// The option no longer exists. Construct the 'deleted' span element.
-		return "<span class='logify-wp-deleted-object'>$old_name (deleted)</span>";
+		return "<span class='logify-wp-deleted-object'>" . esc_html( $old_name ) . " (deleted)</span>";
 	}
 
 	// =============================================================================================

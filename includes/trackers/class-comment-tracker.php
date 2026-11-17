@@ -34,7 +34,7 @@ class Comment_Tracker {
 		add_action( 'middle_wp_insert_comment', array( __CLASS__, 'on_wp_insert_comment' ), 10, 2 );
 		
 		// Edit comment.
-		add_action( 'wp_update_comment_data', [__NAMESPACE__.'\Async_Tracker','async_wp_update_comment_data'], 10, 3 );
+		add_filter( 'wp_update_comment_data', [__NAMESPACE__.'\Async_Tracker','async_wp_update_comment_data'], 10, 3 );
 		add_filter( 'middle_wp_update_comment_data', array( __CLASS__, 'on_wp_update_comment_data' ), 10, 3 );
 
 		add_action( 'edit_comment', [__NAMESPACE__.'\Async_Tracker','async_edit_comment'], 10, 2 );
@@ -61,7 +61,7 @@ class Comment_Tracker {
 	 * @param int        $id      The comment ID.
 	 * @param WP_Comment $comment Comment object.
 	 */
-	public static function on_wp_insert_comment( int $id, $serialize_comment ) {
+	public static function on_wp_insert_comment( int $id, $serialize_comment, int $acting_user_id = 0 ) {
 
 		// Deserialize comment object safely
 		if ( is_string( $serialize_comment ) ) {
@@ -77,7 +77,7 @@ class Comment_Tracker {
 		}
 		Debug::info( 'on_wp_insert_comment', $id );
 		
-		Logger::log_event( 'Comment Added', $comment );
+		Logger::log_event( 'Comment Added', $comment, null, null, $acting_user_id ?: null, true );
 	}
 
 	/**
@@ -140,7 +140,7 @@ class Comment_Tracker {
 		$comment = Comment_Utility::load( $comment_id );
 
 		// Log the event.
-		Logger::log_event( 'Comment Updated', $comment, null, self::$properties );
+		Logger::log_event( 'Comment Updated', $comment, null, self::$properties, get_current_user_id() ?: null, true );
 	}
 
 	/**
@@ -149,7 +149,7 @@ class Comment_Tracker {
 	 * @param string     $comment_id The comment ID as a numeric string.
 	 * @param WP_Comment $comment    The comment to be deleted.
 	 */
-	public static function on_delete_comment( $comment_id, $serialize_comment ) {
+	public static function on_delete_comment( $comment_id, $serialize_comment, int $acting_user_id = 0 ) {
 
 		// Deserialize comment object safely
 		if ( is_string( $serialize_comment ) ) {
@@ -169,7 +169,7 @@ class Comment_Tracker {
 		$props = Comment_Utility::get_properties( $comment );
 		
 		// Log the event.
-		Logger::log_event( 'Comment Deleted', $comment, null, $props );
+		Logger::log_event( 'Comment Deleted', $comment, null, $props, $acting_user_id ?: null, true );
 	}
 
 	/**
@@ -179,10 +179,22 @@ class Comment_Tracker {
 	 * @param int|string $old_status The old comment status.
 	 * @param WP_Comment $comment    Comment object.
 	 */
-	public static function on_transition_comment_status( int|string $new_status, int|string $old_status, $comment ) {
+	public static function on_transition_comment_status( int|string $new_status, int|string $old_status, $comment, int $acting_user_id = 0 ) {
 		
-		//Convert to Object
-		$comment = (object)$comment;
+		// F-11: this arrives as a serialized string from postFilteredData(), so the old
+		// (object) cast produced stdClass{ scalar: 'O:10:"WP_Comment":...' } rather than a
+		// comment. Deserialize the way the sibling handlers do.
+		if ( is_string( $comment ) ) {
+			$deserialized = null;
+			Serialization::try_unserialize( $comment, $deserialized );
+			$comment = $deserialized;
+		} elseif ( is_array( $comment ) ) {
+			$comment = (object) $comment;
+		}
+		if ( ! is_object( $comment ) ) {
+			Debug::warning( 'logify-debug: on_transition_comment_status could not resolve the comment payload' );
+			return;
+		}
 		Debug::info( 'on_transition_comment_status', $new_status, $old_status );
 		
 		// Ignore delete events.
@@ -210,7 +222,7 @@ class Comment_Tracker {
 		Property::update_array( $props, 'status', null, $old_status, $new_status );
 
 		// Log the event.
-		Logger::log_event( $event_type, $comment, null, $props );
+		Logger::log_event( $event_type, $comment, null, $props, $acting_user_id ?: null, true );
 	}
 
 	/**
@@ -240,7 +252,7 @@ class Comment_Tracker {
 			Property::update_array( $props, 'post', null, $post_ref );
 
 			// Log the event.
-			Logger::log_event( 'Comment Trashed with Post', $comment, null, $props );
+			Logger::log_event( 'Comment Trashed with Post', $comment, null, $props, get_current_user_id() ?: null, true );
 		}
 	}
 
@@ -276,7 +288,7 @@ class Comment_Tracker {
 			Property::update_array( $props, 'post', null, $post_ref );
 
 			// Log the event.
-			Logger::log_event( 'Comment Restored', $comment, null, $props );
+			Logger::log_event( 'Comment Restored', $comment, null, $props, get_current_user_id() ?: null, true );
 		}
 	}
 }

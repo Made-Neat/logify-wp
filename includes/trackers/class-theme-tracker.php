@@ -232,7 +232,7 @@ class Theme_Tracker
 	 * @param WP_Theme $new_theme WP_Theme instance of the new theme.
 	 * @param WP_Theme $old_theme WP_Theme instance of the old theme.
 	 */
-	public static function on_switch_theme(string $new_name, $new_payload, $old_payload, ?string $client_ip = null)
+	public static function on_switch_theme(string $new_name, $new_payload, $old_payload, int $acting_user_id = 0, ?string $client_ip = null)
 	{
 		// Normalize payloads (arrays with stylesheet/name) into WP_Theme when possible
 		$new_theme = null;
@@ -263,12 +263,12 @@ class Theme_Tracker
 
 		// Log event with best available object ref for the new theme
 		if ($new_theme instanceof WP_Theme) {
-			Logger::log_event('Theme Switched', $new_theme, $metas, null, null, false, $client_ip);
+			Logger::log_event('Theme Switched', $new_theme, $metas, null, $acting_user_id ?: null, false, $client_ip);
 		} elseif (is_array($new_payload)) {
 			$new_ref = new Object_Reference('theme', $new_payload['stylesheet'] ?? null, $new_payload['name'] ?? $new_name);
-			Logger::log_event('Theme Switched', $new_ref, $metas, null, null, false, $client_ip);
+			Logger::log_event('Theme Switched', $new_ref, $metas, null, $acting_user_id ?: null, false, $client_ip);
 		} else {
-			Logger::log_event('Theme Switched', 'theme', $metas, null, null, false, $client_ip);
+			Logger::log_event('Theme Switched', 'theme', $metas, null, $acting_user_id ?: null, false, $client_ip);
 		}
 	}
 
@@ -277,12 +277,12 @@ class Theme_Tracker
 	 *
 	 * @param string $stylesheet Stylesheet of the theme to delete.
 	 */
-	public static function on_delete_theme(string $stylesheet, ?string $client_ip = null)
+	public static function on_delete_theme(string $stylesheet, int $acting_user_id = 0, ?string $client_ip = null)
 	{
 		// Load the theme before it gets deleted.
 		$theme = Theme_Utility::load($stylesheet);
 
 		// Log the theme deletion event.
-		Logger::log_event('Theme Deleted', $theme, null, null, null, false, $client_ip);
+		Logger::log_event('Theme Deleted', $theme, null, null, $acting_user_id ?: null, false, $client_ip);
 	}
 }

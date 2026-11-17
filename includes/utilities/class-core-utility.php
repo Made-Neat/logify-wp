@@ -78,6 +78,6 @@ class Core_Utility {
 		$name = self::get_name( $version );
 
 		// Return the link.
-		return "<a href='$url' class='logify-wp-object' target='_blank'>$name</a>";
+		return "<a href='" . esc_url( $url ) . "' class='logify-wp-object' target='_blank'>" . esc_html( $name ) . "</a>";
 	}
 }

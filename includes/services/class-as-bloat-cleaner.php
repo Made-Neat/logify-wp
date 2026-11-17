@@ -113,8 +113,15 @@ final class AS_Bloat_Cleaner {
 		// Step 2: Delete aged logs.
 		self::delete_aged_logs( $wpdb, $start, $cutoff_date );
 
-		// Step 3: Delete orphan logs (action deleted but logs remain).
-		self::delete_orphan_logs( $wpdb, $start );
+		// Step 3: orphan-log cleanup is DISABLED as of 1.3.5.
+		//
+		// A log row whose action row is gone carries no group, so there is no way to
+		// tell whose orphan it is. The previous implementation deleted every orphan on
+		// the site, which on a WooCommerce store meant destroying that plugin's
+		// Action Scheduler history. Our own orphans are already prevented: Step 1
+		// removes logs alongside their actions via delete_action_ids().
+		// Do not re-enable without a way to attribute the row.
+		// self::delete_orphan_logs( $wpdb, $start );
 
 		self::log( 'Run finished.' );
 	}
@@ -134,11 +141,18 @@ final class AS_Bloat_Cleaner {
 
 			$ids = $wpdb->get_col(
 				$wpdb->prepare(
-					"SELECT a.action_id FROM {$wpdb->prefix}actionscheduler_actions a INNER JOIN {$wpdb->prefix}actionscheduler_groups g ON a.group_id = g.group_id WHERE (a.hook LIKE %s OR a.hook = %s) AND g.slug IN (%s,%s) AND COALESCE(a.last_attempt_gmt, a.scheduled_date_gmt) < %s LIMIT %d",
+					"SELECT a.action_id FROM {$wpdb->prefix}actionscheduler_actions a INNER JOIN {$wpdb->prefix}actionscheduler_groups g ON a.group_id = g.group_id WHERE (a.hook LIKE %s OR a.hook = %s) AND g.slug IN (%s,%s) AND a.status IN (%s,%s,%s) AND COALESCE(a.last_attempt_gmt, a.scheduled_date_gmt) < %s LIMIT %d",
 					'middle_%',
 					'logify_wp_process_errors',
 					'logify',
 					'logify-wp',
+					// Only ever reap actions that have reached a terminal state. Without this
+					// filter a pending action - one that has never run because cron is broken
+					// or throttled - is deleted once its scheduled date ages past the cutoff,
+					// which means the plugin destroys its own unprocessed audit trail.
+					'complete',
+					'failed',
+					'canceled',
 					$cutoff_date,
 					self::ACTION_BATCH_SIZE
 				)
@@ -168,9 +182,14 @@ final class AS_Bloat_Cleaner {
 				break;
 			}
 
+			// Scope to this plugin's own groups. Action Scheduler is shared infrastructure -
+			// WooCommerce and others log into the same table - so an unscoped delete here
+			// wipes their execution history along with ours.
 			$log_ids = $wpdb->get_col(
 				$wpdb->prepare(
-					"SELECT log_id FROM {$wpdb->prefix}actionscheduler_logs WHERE log_date_gmt < %s LIMIT %d",
+					"SELECT l.log_id FROM {$wpdb->prefix}actionscheduler_logs l INNER JOIN {$wpdb->prefix}actionscheduler_actions a ON l.action_id = a.action_id INNER JOIN {$wpdb->prefix}actionscheduler_groups g ON a.group_id = g.group_id WHERE g.slug IN (%s,%s) AND l.log_date_gmt < %s LIMIT %d",
+					'logify',
+					'logify-wp',
 					$cutoff_date,
 					self::LOG_BATCH_SIZE
 				)
@@ -221,12 +240,21 @@ final class AS_Bloat_Cleaner {
 	 * @param float $start      Start microtime for time limit check.
 	 */
 	private static function delete_action_ids( $action_ids, $start ): int {
+		// Action Scheduler may not be loaded at all (another plugin's copy won
+		// arbitration, or it was deactivated mid-request). Bail rather than fatal.
+		if ( ! class_exists( '\ActionScheduler' ) ) {
+			Debug::error( 'AS_Bloat_Cleaner: ActionScheduler not available, skipping action cleanup.' );
+			return 0;
+		}
+
 		$deleted = 0;
 		foreach ( $action_ids as $action_id ) {
 			try {
 				\ActionScheduler::store()->delete_action( $action_id );
 				$deleted++;
-			} catch ( \Exception $e ) {
+			} catch ( \Throwable $e ) {
+				// \Throwable, not \Exception: a missing class raises \Error, which the
+				// previous catch let through and turned into a fatal in the cron request.
 				Debug::error( "AS_Bloat_Cleaner: failed to delete action $action_id", $e->getMessage() );
 			}
 

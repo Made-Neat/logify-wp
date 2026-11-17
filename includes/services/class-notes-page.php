@@ -30,6 +30,12 @@ class Notes_Page {
 		self::ensure_feature_enabled();
 		
 		check_ajax_referer('logify-wp-notes-page', 'security');
+
+		// A valid nonce proves intent, not authorization. Without this, any logged-in
+		// user who obtained a nonce could write to the audit log's annotations.
+		if ( ! Access_Control::can_access_log_page() ) {
+			wp_send_json_error( array( 'message' => 'You do not have permission to do this.' ), 403 );
+		}
 		
 		$note_id = isset($_POST['note_id']) 
 			? intval( sanitize_text_field( wp_unslash( $_POST['note_id'] ) ) ) 
@@ -80,6 +86,12 @@ class Notes_Page {
 		self::ensure_feature_enabled();
 		
 		check_ajax_referer('logify-wp-notes-page', 'security');
+
+		// A valid nonce proves intent, not authorization. Without this, any logged-in
+		// user who obtained a nonce could write to the audit log's annotations.
+		if ( ! Access_Control::can_access_log_page() ) {
+			wp_send_json_error( array( 'message' => 'You do not have permission to do this.' ), 403 );
+		}
 	
 		// Validate input
 		if (empty($_POST['note_content'])) {
@@ -456,8 +468,13 @@ class Notes_Page {
 			// Trim leading and trailing spaces
 			$plainText = trim($plainText);
 
-			// Trim the text to 50 characters and add ellipsis if necessary
-			$item['short_note'] = mb_strimwidth($plainText, 0, 50, '...');
+			// Trim the text to 50 characters and add ellipsis if necessary.
+			//
+			// This is bound to a DataTables column with no render callback, which writes
+			// the value straight into the DOM as HTML. html_entity_decode() above turns
+			// an entity-encoded payload that wp_kses_post() had already neutralised back
+			// into live markup, so the decode must be followed by an escape here.
+			$item['short_note'] = esc_html( mb_strimwidth($plainText, 0, 50, '...') );
 
 			// Note ID.
 			$item['event_id'] = $note->event_id;

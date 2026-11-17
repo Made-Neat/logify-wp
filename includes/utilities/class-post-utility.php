@@ -194,7 +194,7 @@ class Post_Utility extends Object_Utility {
 			if ( wp_is_post_revision( $post_id ) ) {
 				// Get a link to the revision comparison page.
 				$url = admin_url( "revision.php?revision={$post_id}" );
-				return "<a href='$url' class='logify-wp-object'>Compare revisions</a>";
+				return "<a href='" . esc_url( $url ) . "' class='logify-wp-object'>Compare revisions</a>";
 			}
 
 			// Make a backup title. Some post types don't have titles.
@@ -217,10 +217,10 @@ class Post_Utility extends Object_Utility {
 				}
 
 				// Get the link text.
-				return "<a href='$url' class='logify-wp-object'>$title</a>";
+				return "<a href='" . esc_url( $url ) . "' class='logify-wp-object'>" . esc_html( $title ) . "</a>";
 			} else {
 				// If the post type doesn't have a UI, we can't link to the edit page.
-				return "<span class='logify-wp-object'>$title</span>";
+				return "<span class='logify-wp-object'>" . esc_html( $title ) . "</span>";
 			}
 		}
 
@@ -230,7 +230,7 @@ class Post_Utility extends Object_Utility {
 		}
 
 		// The post no longer exists. Construct the 'deleted' span element.
-		return "<span class='logify-wp-deleted-object'>$old_title (deleted)</span>";
+		return "<span class='logify-wp-deleted-object'>" . esc_html( $old_title ) . " (deleted)</span>";
 	}
 
 	// =============================================================================================

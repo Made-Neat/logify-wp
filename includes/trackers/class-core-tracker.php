@@ -28,7 +28,7 @@ class Core_Tracker {
 	 *
 	 * @param string $wp_version The current WordPress version.
 	 */
-	public static function on_core_updated_successfully( string $wp_version ) {
+	public static function on_core_updated_successfully( string $wp_version, int $acting_user_id = 0 ) {
 		// Get the old version.
 		$old_version = get_bloginfo( 'version' );
 
@@ -53,6 +53,8 @@ class Core_Tracker {
 
 		// Log the event.
 		$core_ref = new Object_Reference( 'core', $wp_version );
-		Logger::log_event( $event_type, $core_ref, null, $props );
+		// all_users:true because a core update must be recorded whether it was started by
+		// an administrator or by WordPress's own automatic updater, which runs with no user.
+		Logger::log_event( $event_type, $core_ref, null, $props, $acting_user_id ?: null, true );
 	}
 }

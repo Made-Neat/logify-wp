@@ -98,10 +98,13 @@ class PHP_Error_Log
         $data = [];
         foreach ($recordset as $record) {
             $error = Error_Repository::load($record['error_id']);
+            // Both fields are bound to DataTables columns with no render callback, so
+            // they are written into the DOM as HTML. Error text is scraped verbatim from
+            // debug.log and routinely embeds request data, so escape on the way out.
             $data[] = [
                 'error_id'      => $error->error_id,
-                'error_type'    => $error->error_type,
-                'error_content' => $error->error_content,
+                'error_type'    => esc_html( $error->error_type ),
+                'error_content' => esc_html( $error->error_content ),
             ];
         }
 
