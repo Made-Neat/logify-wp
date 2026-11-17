@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_Admin_Bar;
 
 /**
@@ -44,6 +49,7 @@ class Admin {
 
 		// Add the log reset functionality.
 		add_action( 'admin_post_logify_wp_reset_logs', array( __CLASS__, 'reset_logs' ), 10, 0 );
+
 	}
 
 	/**
@@ -59,25 +65,22 @@ class Admin {
 		}
 
 		// Add the main menu page and submenus.
-		$hook = add_menu_page( 'Logify WP', 'Logify WP', 'read', 'logify-wp', array( 'Logify_WP\Log_Page', 'display_log_page' ), 'dashicons-list-view' );
+		$hook = add_menu_page( __( 'Logify WP', 'logify-wp' ), __( 'Logify WP', 'logify-wp' ), 'read', 'logify-wp', array( 'Logify_WP\Log_Page', 'display_log_page' ), 'dashicons-list-view' );
 
 		// Log page submenu.
-		add_submenu_page( 'logify-wp', 'View Log', 'View Log', 'read', 'logify-wp', array( 'Logify_WP\Log_Page', 'display_log_page' ) );
+		add_submenu_page( 'logify-wp', __( 'View Log', 'logify-wp' ), __( 'View Log', 'logify-wp' ), 'read', 'logify-wp', array( 'Logify_WP\Log_Page', 'display_log_page' ) );
 
 		// Check if the notes feature is enabled
-		if (get_option('logify_wp_enable_notes', false)) {
+		if (Plugin_Settings::get_enable_notes()) {
 			// Log page submenu.
-			$noteshook = add_submenu_page( 'logify-wp', 'View Notes', 'View Notes', 'read', 'logify-wp-notes', array( 'Logify_WP\Notes_Page', 'display_notes_page' ) );
+			$noteshook = add_submenu_page( 'logify-wp', __( 'View Notes', 'logify-wp' ), __( 'View Notes', 'logify-wp' ), 'read', 'logify-wp-notes', array( 'Logify_WP\Notes_Page', 'display_notes_page' ) );
 			add_action( "load-$noteshook", array( __CLASS__, 'add_screen_options' ) );
 		}
 
-		$errorhook = add_submenu_page( 'logify-wp', 'PHP Error Log', 'PHP Error Log', 'read', 'logify-wp-php-error-log', array( 'Logify_WP\PHP_Error_Log', 'display_php_error_log_page' ) );
 		// Settings submenu (only for users with 'manage_options' capability).
 
-		// Add screen options for the log page.
-		add_action( "load-$errorhook", array( __CLASS__, 'add_screen_options' ) );
 		// Settings submenu (only for users with 'manage_options' capability).
-		add_submenu_page( 'logify-wp', 'Settings', 'Settings', 'manage_options', 'logify-wp-settings', array( 'Logify_WP\Plugin_Settings', 'display_settings_page' ) );
+		add_submenu_page( 'logify-wp', __( 'Settings', 'logify-wp' ), __( 'Settings', 'logify-wp' ), 'manage_options', 'logify-wp-settings', array( 'Logify_WP\Plugin_Settings', 'display_settings_page' ) );
 
 		// Add screen options for the log page.
 		add_action( "load-$hook", array( __CLASS__, 'add_screen_options' ) );
@@ -108,30 +111,13 @@ class Admin {
 			array(
 				'id'     => 'logify-wp-view-log',
 				'parent' => 'logify-wp',
-				'title'  => 'View Log',
+				'title'  => __( 'View Log', 'logify-wp' ),
 				'href'   => admin_url( 'admin.php?page=logify-wp' ),
 			)
 		);
 
-		$wp_admin_bar->add_node(
-			array(
-				'id'     => 'logify-wp-view-log',
-				'parent' => 'logify-wp',
-				'title'  => 'View Log',
-				'href'   => admin_url( 'admin.php?page=logify-wp' ),
-			)
-		);
-
-		$wp_admin_bar->add_node(
-			array(
-				'id'     => 'logify-wp-php-error-log',
-				'parent' => 'logify-wp',
-				'title'  => 'View PHP Error Log',
-				'href'   => admin_url('admin.php?page=logify-wp-php-error-log'),
-			)
-		);
 		// Check if the notes feature is enabled
-		if (get_option('logify_wp_enable_notes', false)) {
+		if (Plugin_Settings::get_enable_notes()) {
 			$wp_admin_bar->add_node(
 				array(
 					'id'     => 'logify-wp-notes',
@@ -171,6 +157,73 @@ class Admin {
 			'option'  => 'logify_wp_events_per_page',
 		);
 		add_screen_option( $option, $args );
+
+		// Column visibility belongs in Screen Options, which is where WordPress users look
+		// for it. It used to be a bespoke "Show/Hide Columns" strip injected above the table.
+		add_filter( 'screen_settings', array( __CLASS__, 'render_column_screen_options' ), 10, 2 );
+	}
+
+	/**
+	 * Add the column checkboxes to the Screen Options panel.
+	 *
+	 * @param string $settings The existing screen settings markup.
+	 * @param mixed  $screen   The current screen.
+	 * @return string The settings markup.
+	 */
+	public static function render_column_screen_options( $settings, $screen ) {
+		if ( ! is_object( $screen ) || strpos( (string) $screen->id, 'logify-wp' ) === false ) {
+			return $settings;
+		}
+
+		// Only the events log has these columns.
+		if ( strpos( (string) $screen->id, 'logify-wp-notes' ) !== false
+			|| strpos( (string) $screen->id, 'logify-wp-settings' ) !== false ) {
+			return $settings;
+		}
+
+		$user_id = get_current_user_id();
+
+		$columns = array(
+			'logify_wp_col_user'  => array(
+				'label'   => __( 'User', 'logify-wp' ),
+				'visible' => get_user_meta( $user_id, 'logify_wp_col_user', true ) !== 'hidden',
+			),
+			'logify_wp_col_ip'    => array(
+				'label'   => __( 'Source IP', 'logify-wp' ),
+				'visible' => get_user_meta( $user_id, 'logify_wp_col_ip', true ) !== 'hidden',
+			),
+			'logify_wp_col_object' => array(
+				'label'   => __( 'Object', 'logify-wp' ),
+				'visible' => get_user_meta( $user_id, 'logify_wp_col_object', true ) === 'visible',
+			),
+		);
+
+		if ( Plugin_Settings::get_enable_notes() ) {
+			$columns['logify_wp_col_notes'] = array(
+				'label'   => __( 'Notes', 'logify-wp' ),
+				'visible' => get_user_meta( $user_id, 'logify_wp_col_notes', true ) !== 'hidden',
+			);
+		}
+
+		ob_start();
+		?>
+		<fieldset class="logify-wp-screen-options metabox-prefs">
+			<legend><?php esc_html_e( 'Columns', 'logify-wp' ); ?></legend>
+			<p class="description">
+				<?php esc_html_e( 'ID, Date and Event are always shown. Changes apply immediately.', 'logify-wp' ); ?>
+			</p>
+			<?php foreach ( $columns as $meta_key => $column ) : ?>
+				<label for="<?php echo esc_attr( $meta_key ); ?>">
+					<input type="checkbox" class="logify-wp-col-toggle"
+						id="<?php echo esc_attr( $meta_key ); ?>"
+						data-column-name="<?php echo esc_attr( $meta_key ); ?>"
+						<?php checked( $column['visible'] ); ?>>
+					<?php echo esc_html( $column['label'] ); ?>
+				</label>
+			<?php endforeach; ?>
+		</fieldset>
+		<?php
+		return $settings . ob_get_clean();
 	}
 
 	/**
@@ -183,7 +236,11 @@ class Admin {
 	 */
 	public static function set_screen_option( $status, $option, $value ) {
 		if ( 'logify_wp_events_per_page' === $option ) {
-			return $value;
+			// Clamped. Each row on this page carries an expandable details pane built from the
+			// event's properties and metadata, so a very large page length is slow to build
+			// and heavy for the browser to lay out - on shared hosting it is the quickest way
+			// to make this screen feel broken.
+			return max( 5, min( 200, absint( $value ) ) );
 		}
 		return $status;
 	}
@@ -214,16 +271,64 @@ class Admin {
 	 * @return string The handle of the enqueued stylesheet.
 	 */
 	public static function enqueue_style( $src, $deps = array(), $ver = 'auto', $media = 'all' ): string {
-		// If auto is specified, use the file modified time as the version number.
-		$ver = $ver === 'auto' ? filemtime( LOGIFY_WP_PLUGIN_DIR . $src ) : $ver;
+		// The handle is derived from the readable filename, so that it does not change depending
+		// on whether the minified build is in use.
+		$handle = self::filename_to_handle( $src );
 
-		// Enqueue the script.
-		$handle  = self::filename_to_handle( $src );
+		// Prefer the minified build unless the site is debugging front-end assets.
+		$src = self::minified_src( $src );
+
+		// If auto is specified, use the file modified time as the version number.
+		$ver = $ver === 'auto' ? self::asset_version( $src ) : $ver;
+
+		// Enqueue the stylesheet.
 		$src_url = LOGIFY_WP_PLUGIN_URL . $src;
 		wp_enqueue_style( $handle, $src_url, $deps, $ver, $media );
 
 		// Return the handle.
 		return $handle;
+	}
+
+	/**
+	 * Swap an asset path for its minified sibling where one exists.
+	 *
+	 * Both builds ship, so defining SCRIPT_DEBUG - which is what WordPress core itself uses for
+	 * this - gives the readable file back for debugging. If a .min file is missing for any
+	 * reason the original is used, so a partial build cannot break an admin page.
+	 *
+	 * @param string $src Plugin-relative asset path.
+	 * @return string The path to enqueue.
+	 */
+	private static function minified_src( string $src ): string {
+		if ( defined( 'SCRIPT_DEBUG' ) && SCRIPT_DEBUG ) {
+			return $src;
+		}
+
+		// Already minified.
+		if ( preg_match( '/\.min\.(js|css)$/', $src ) ) {
+			return $src;
+		}
+
+		$min = preg_replace( '/\.(js|css)$/', '.min.$1', $src );
+
+		if ( $min && $min !== $src && file_exists( LOGIFY_WP_PLUGIN_DIR . $min ) ) {
+			return $min;
+		}
+
+		return $src;
+	}
+
+	/**
+	 * Version string for an asset, based on its modified time.
+	 *
+	 * @param string $src Plugin-relative asset path.
+	 * @return string|false The version, or false to fall back to the WordPress version.
+	 */
+	private static function asset_version( string $src ) {
+		$path = LOGIFY_WP_PLUGIN_DIR . $src;
+
+		// filemtime() emits a warning and returns false on a missing file; check first.
+		return file_exists( $path ) ? (string) filemtime( $path ) : false;
 	}
 
 	/**
@@ -239,11 +344,17 @@ class Admin {
 	 * @return string The handle of the enqueued script.
 	 */
 	public static function enqueue_script( $src, $deps = array(), $ver = 'auto', $args = array() ): string {
+		// The handle is derived from the readable filename, so that it does not change depending
+		// on whether the minified build is in use.
+		$handle = self::filename_to_handle( $src );
+
+		// Prefer the minified build unless the site is debugging front-end assets.
+		$src = self::minified_src( $src );
+
 		// If auto is specified, use the file modified time as the version number.
-		$ver = $ver === 'auto' ? filemtime( LOGIFY_WP_PLUGIN_DIR . $src ) : $ver;
+		$ver = $ver === 'auto' ? self::asset_version( $src ) : $ver;
 
 		// Enqueue the script.
-		$handle  = self::filename_to_handle( $src );
 		$src_url = LOGIFY_WP_PLUGIN_URL . $src;
 		wp_enqueue_script( $handle, $src_url, $deps, $ver, $args );
 
@@ -274,7 +385,33 @@ class Admin {
 		// Settings.
 		if ( $hook === 'logify-wp_page_logify-wp-settings' ) {
 			self::enqueue_style( 'assets/css/settings.css' );
-			self::enqueue_script( 'assets/js/settings-page.js', array( 'jquery' ), 'auto', true );
+			$settings_handle = self::enqueue_script( 'assets/js/settings-page.js', array( 'jquery' ), 'auto', true );
+
+			// Data for the user access picker. The nonce and the strings have to come from
+			// PHP so the search is authenticated and the messages are translatable.
+			wp_localize_script(
+				$settings_handle,
+				'logifyWpSettings',
+				array(
+					'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
+					'nonce'     => wp_create_nonce( 'logify_wp_search_users' ),
+					'minChars'  => 2,
+					'i18n'      => array(
+						'searching'   => __( 'Searching…', 'logify-wp' ),
+						'noResults'   => __( 'No users found.', 'logify-wp' ),
+						'searchError' => __( 'The search could not be completed. Please try again.', 'logify-wp' ),
+						'viaRole'     => __( '(has access via role)', 'logify-wp' ),
+						'add'         => __( 'Grant access', 'logify-wp' ),
+						'remove'      => __( 'Remove access', 'logify-wp' ),
+						'alreadyAdded' => __( 'Already has access', 'logify-wp' ),
+						/* translators: %d: number of users found. */
+						'resultCount' => __( '%d users found.', 'logify-wp' ),
+						'added'       => __( 'Access granted. Remember to save your changes.', 'logify-wp' ),
+						'removed'     => __( 'Access removed. Remember to save your changes.', 'logify-wp' ),
+						'noneYet'     => __( 'No individual users have been granted access.', 'logify-wp' ),
+					),
+				)
+			);
 		}
 
 		// Log page
@@ -287,9 +424,6 @@ class Admin {
 			self::setup_page($hook, 'assets/js/notes-page.js', 'logify-wp-notes-page');
 		}
 		// PHP Error Log page
-		if ($hook === 'logify-wp_page_logify-wp-php-error-log') {
-			self::setup_page($hook, 'assets/js/php-error-log-page.js', 'logify-wp-php-error-log-page');
-		}
 	}
 
 
@@ -298,13 +432,19 @@ class Admin {
 		wp_enqueue_editor();
 		
 		// Styles
-		self::enqueue_style('assets/css/log-page.css');
+		// Note: enqueued further down, after DataTables and jQuery UI, so that the plugin's own
+		// rules are not outranked by theirs. It used to load first, which is why some pagination
+		// styling silently lost to DataTables' more specific selectors.
 
 		// Get the date format to pass to JS
 		$date_format = DateTimes::convert_php_date_format_to_js(get_option('date_format'));
 
-		// Scripts
-		$script_handle = self::enqueue_script($script_file, array('jquery'), 'auto', true);
+		// Scripts.
+		// common-page.js first, and declared as a dependency of the page script, because it
+		// defines the shared filter, pagination and note-dialog helpers the page scripts call.
+		$common_handle = self::enqueue_script('assets/js/common-page.js', array('jquery'), 'auto', true);
+
+		$script_handle = self::enqueue_script($script_file, array('jquery', $common_handle), 'auto', true);
 		
 		// Prepare localization data.
 		$localization_data = array(
@@ -319,10 +459,51 @@ class Admin {
 			$localization_data['columnPreferences'] = array(
 				'logify_wp_col_user'  => get_user_meta( $user_id, 'logify_wp_col_user', true ),
 				'logify_wp_col_ip'    => get_user_meta( $user_id, 'logify_wp_col_ip', true ),
+				'logify_wp_col_object' => get_user_meta( $user_id, 'logify_wp_col_object', true ),
 				'logify_wp_col_notes' => get_user_meta( $user_id, 'logify_wp_col_notes', true ),
 			);
 			$localization_data['notesEnabled'] = Plugin_Settings::get_enable_notes();
 		}
+
+		// Strings for the note dialog and the active-filter summary.
+		$localization_data['i18n'] = array(
+			'addNote'           => __( 'Add note', 'logify-wp' ),
+			'editNote'          => __( 'Edit note', 'logify-wp' ),
+			'confirmDelete'     => __( 'Delete this note? This cannot be undone.', 'logify-wp' ),
+			'deleteFailed'      => __( 'Failed to delete the note.', 'logify-wp' ),
+			'filterSearch'      => __( 'Search', 'logify-wp' ),
+			'filterDate'        => __( 'Date', 'logify-wp' ),
+			'filterEvent'       => __( 'Event type', 'logify-wp' ),
+			'filterUser'        => __( 'User', 'logify-wp' ),
+			'filterRole'        => __( 'Role', 'logify-wp' ),
+			'filterPostType'    => __( 'Post type', 'logify-wp' ),
+			'filterTaxonomy'    => __( 'Taxonomy', 'logify-wp' ),
+			'filterObjectTypes' => __( 'Object types limited', 'logify-wp' ),
+			'filterNone'        => __( 'No filters applied', 'logify-wp' ),
+			'eventLabel'        => __( 'Event', 'logify-wp' ),
+			'noteLabel'         => __( 'Note', 'logify-wp' ),
+			'loading'           => __( 'Loading events…', 'logify-wp' ),
+			'goToPage'          => __( 'Go to page', 'logify-wp' ),
+			'go'                => __( 'Go', 'logify-wp' ),
+			/* translators: %d: total number of pages. */
+			'ofPages'           => __( 'of %d', 'logify-wp' ),
+			'first'             => __( 'First page', 'logify-wp' ),
+			'previous'          => __( 'Previous page', 'logify-wp' ),
+			'next'              => __( 'Next page', 'logify-wp' ),
+			'last'              => __( 'Last page', 'logify-wp' ),
+			'exporting'         => __( 'Preparing your export…', 'logify-wp' ),
+			'removeFilter'      => __( 'Remove filter', 'logify-wp' ),
+			'noteEmpty'         => __( 'Note content cannot be empty.', 'logify-wp' ),
+			'filterRemoved'     => __( 'Filter removed.', 'logify-wp' ),
+			/* translators: %d: number of filters currently applied. */
+			'filtersActive'     => __( '%d filters applied.', 'logify-wp' ),
+			/* translators: _START_, _END_ and _TOTAL_ are replaced with row numbers; keep them as they are. */
+			'info'              => __( '_START_–_END_ of _TOTAL_', 'logify-wp' ),
+			/* translators: _MAX_ is replaced with the unfiltered total; keep it as it is. */
+			'infoFiltered'      => __( ' (of _MAX_)', 'logify-wp' ),
+			'infoEmpty'         => __( 'No events', 'logify-wp' ),
+			'emptyTable'        => __( 'No events match these filters.', 'logify-wp' ),
+		);
 
 		wp_localize_script(
 			$script_handle,
@@ -338,8 +519,15 @@ class Admin {
 		self::enqueue_style('assets/datatables/datatables.css', array(), '2.0.8');
 		self::enqueue_script('assets/datatables/datatables.js', array('jquery'), '2.0.8', true);
 
-		// Common script
-		self::enqueue_script('assets/js/common-page.js', array('jquery'), 'auto', true);
+		// The plugin's own styles load last, and declare the third-party stylesheets as
+		// dependencies so the order holds however WordPress schedules them.
+		self::enqueue_style(
+			'assets/css/log-page.css',
+			array( 'logify-wp-jquery-ui', 'logify-wp-datatables' )
+		);
+
+		// Note: common-page.js is enqueued at the top of this method, ahead of the page script
+		// that depends on it.
 	}
 
 
@@ -352,22 +540,29 @@ class Admin {
 		// Verify nonce.
 		$nonce = isset( $_GET['logify_wp_nonce'] ) ? sanitize_text_field( wp_unslash( $_GET['logify_wp_nonce'] ) ) : '';
 		if ( ! $nonce || ! wp_verify_nonce( $nonce, 'logify_wp_reset_logs_action' ) ) {
-			wp_die( esc_html( 'Security check failed. Please try again.' ), esc_html( 'Error' ), array( 'response' => 403 ) );
+			wp_die( esc_html__( 'Security check failed. Please try again.', 'logify-wp' ), esc_html__( 'Error', 'logify-wp' ), array( 'response' => 403 ) );
 		}
 
 		// Check user capabilities.
 		if ( ! Access_Control::can_access_settings_page() ) {
-			wp_die( esc_html( 'You are not allowed to perform this action.' ), esc_html( 'Error' ), array( 'response' => 403 ) );
+			wp_die( esc_html__( 'You are not allowed to perform this action.', 'logify-wp' ), esc_html__( 'Error', 'logify-wp' ), array( 'response' => 403 ) );
 		}
 
-		// Do the reset.
+		// Do the reset. This also removes notes; tell the user explicitly in the UI.
 		Database::truncate_all_tables();
+
+		// Keep a new audit marker after the reset. Unlike the old log entries this
+		// marker is created after the tables have been emptied.
+		Logger::log_event( 'Activity Log Reset', null, null, null, null, true );
+
+		// The events-log page caches the total row count; drop it so the count is not stale.
+		delete_transient( 'logify_wp_events_total' );
 
 		// After performing the action, generate a nonce for the redirect
 		$redirect_nonce = wp_create_nonce( 'logify_wp_messages_nonce' );
 
 		// Redirect back with success message and nonce
-		wp_redirect(
+		wp_safe_redirect(
 			add_query_arg(
 				array(
 					'reset'           => 'success',

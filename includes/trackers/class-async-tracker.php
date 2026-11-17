@@ -10,6 +10,11 @@ declare(strict_types=1);
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_Comment;
 use WP_Error;
 use WP_Post;
@@ -101,7 +106,7 @@ class Async_Tracker
     private static function scheduleAction(string $hook, array $args = [], bool $includeIp = false): void
     {
         if ($includeIp) {
-            $args[] = User_Utility::get_ip();
+            $args[] = User_Utility::get_ip_context_token();
         }
 
         // Unique flag is false here. Dedupe is handled by scheduleUnique.
@@ -130,10 +135,35 @@ class Async_Tracker
 
         // Add IP after dedup check so it doesn't affect uniqueness matching.
         if ($includeIp) {
-            $args[] = User_Utility::get_ip();
+            $args[] = User_Utility::get_ip_context_token();
         }
 
         AS_Guard::enqueue_async($hook, $args, self::GROUP, true);
+    }
+
+    /**
+     * Error-isolating adapter for WordPress / third-party hooks. Some plugins
+     * invoke core hooks with fewer arguments or different runtime types.
+     * Preserve a filter's original value if logging fails.
+     */
+    public static function safe_callback(string $method, bool $filter = false): \Closure
+    {
+        // Return the SAME callable for hooks registered by multiple trackers.
+        // WordPress previously deduplicated identical [Class, method] callbacks.
+        static $callbacks = array();
+        $key = $method . ( $filter ? ':filter' : ':action' );
+        if ( isset( $callbacks[ $key ] ) ) {
+            return $callbacks[ $key ];
+        }
+        $callbacks[ $key ] = static function (...$args) use ($method, $filter) {
+            try {
+                return self::$method(...$args);
+            } catch (\Throwable $e) {
+                Debug::warning('Logify WP tracker callback failed', $method, $e->getMessage());
+                return $filter ? ($args[0] ?? null) : null;
+            }
+        };
+        return $callbacks[ $key ];
     }
 
     /* =======================================================================
@@ -161,9 +191,15 @@ class Async_Tracker
      *
      * @return void
      */
-    public static function async_wp_login_failed(string $username, WP_Error $error): void
+    public static function async_wp_login_failed($username, $error = null): void
     {
-        self::scheduleAction('middle_wp_login_failed', [$username, serialize($error)], true);
+        // A third-party authentication plugin's WP_Error can contain arbitrary
+        // error data, request payloads or credential strings. Queue only a
+        // bounded code; the failed-login event does not need raw auth messages.
+        $code = $error instanceof WP_Error ? sanitize_key((string) $error->get_error_code()) : 'unknown';
+        $code = substr($code ?: 'unknown', 0, 80);
+        $safeError = new WP_Error($code, 'Login failed');
+        self::scheduleAction('middle_wp_login_failed', [(string) $username, serialize($safeError)], true);
     }
 
     /**
@@ -187,7 +223,7 @@ class Async_Tracker
     {
         if (did_action('init') && function_exists('as_has_scheduled_action') && !as_has_scheduled_action('middle_wp_loaded', [], self::GROUP)) {
             $actingUserId = get_current_user_id();
-            self::scheduleUnique('middle_wp_loaded', [$actingUserId]);
+            self::scheduleUnique('middle_wp_loaded', [$actingUserId], true);
         }
     }
 
@@ -199,7 +235,8 @@ class Async_Tracker
     public static function async_shutdown_media(): void
     {
         if (self::$changes['media']) {
-            self::scheduleUnique('middle_shutdown_media');
+            // Media_Tracker::on_shutdown runs in the same PHP process as the
+            // media event. A separate queued shutdown is not useful.
         }
     }
 
@@ -207,8 +244,10 @@ class Async_Tracker
     public static function async_shutdown_option(): void
     {
         if (self::$changes['option']) {
-            $batchId = self::getOptionBatchId();
-            self::scheduleUnique('middle_shutdown_option', [$batchId]);
+            // The option batch is already safely stored by the original request.
+            // Do not schedule a separate flush that may run before its writers.
+            Option_Tracker::on_shutdown(self::getOptionBatchId());
+            self::$changes['option'] = false;
         }
     }
 
@@ -216,7 +255,8 @@ class Async_Tracker
     public static function async_shutdown_post(): void
     {
         if (self::$changes['post']) {
-            self::scheduleUnique('middle_shutdown_post');
+            // The originating request and Action Scheduler after-execute hook
+            // already flush post events. A separate job loses static state.
         }
     }
 
@@ -224,7 +264,7 @@ class Async_Tracker
     public static function async_shutdown_user(): void
     {
         if (self::$changes['user']) {
-            self::scheduleUnique('middle_shutdown_user');
+            // User_Tracker is flushed in its own request / action callback.
         }
     }
 
@@ -248,11 +288,19 @@ class Async_Tracker
      *
      * @return void
      */
-    public static function async_user_register(int $user_id, array $userdata): void
+    public static function async_user_register(int $user_id, $userdata = array()): void
     {
+        // Core's user_register hook may supply the original password in userdata.
+        // Strip credentials BEFORE serializing action arguments to Action Scheduler.
+        $userdata = is_array($userdata) ? $userdata : array();
+        foreach (array_keys($userdata) as $key) {
+            if (Property_Repository::is_sensitive_key((string) $key)) {
+                unset($userdata[$key]);
+            }
+        }
         // On front-end self-registration the current user is 0. The consumer falls back
         // to treating the newly registered user as the actor in that case.
-        self::scheduleAction('middle_user_register', [$user_id, $userdata, get_current_user_id()], true);
+        self::scheduleAction('middle_user_register', [$user_id, Sensitive_Data::sanitize($userdata), get_current_user_id()], true);
     }
 
     /**
@@ -264,9 +312,20 @@ class Async_Tracker
      *
      * @return void
      */
+    /** Remove credential fields from queued WP_User snapshots. */
+    private static function safe_user_snapshot(WP_User $user): string
+    {
+        $copy = clone $user;
+        if (isset($copy->data) && is_object($copy->data)) {
+            $copy->data = clone $copy->data;
+            unset($copy->data->user_pass, $copy->data->user_activation_key);
+        }
+        return serialize($copy);
+    }
+
     public static function async_delete_user(int $user_id, ?int $reassign, WP_User $user): void
     {
-        self::scheduleAction('middle_delete_user', [$user_id, $reassign, serialize($user), get_current_user_id()], true);
+        self::scheduleAction('middle_delete_user', [$user_id, $reassign, self::safe_user_snapshot($user), get_current_user_id()], true);
     }
 
     /**
@@ -284,8 +343,9 @@ class Async_Tracker
         $actingUserId = get_current_user_id();
         $new_user     = get_userdata($user_id);
         $userdata     = $new_user instanceof WP_User ? (array) $new_user->data : array();
+        unset($userdata['user_pass'], $userdata['user_activation_key']);
 
-        self::scheduleAction('middle_profile_update', [$user_id, serialize($user), $userdata, $actingUserId], true);
+        self::scheduleAction('middle_profile_update', [$user_id, self::safe_user_snapshot($user), Sensitive_Data::sanitize($userdata), $actingUserId], true);
     }
 
     /**
@@ -300,8 +360,12 @@ class Async_Tracker
      */
     public static function async_update_user_meta(int $meta_id, int $user_id, string $meta_key, mixed $meta_value): void
     {
+        if (in_array($meta_key, array('session_tokens', 'wp_user_level'), true) || str_ends_with($meta_key, 'capabilities')) {
+            // Dedicated user-security events cover roles and sessions.
+            return;
+        }
         $actingUserId = get_current_user_id();
-        self::scheduleAction('middle_update_user_meta', [$meta_id, $user_id, $meta_key, $meta_value, $actingUserId], true);
+        self::scheduleAction('middle_update_user_meta', [$meta_id, $user_id, $meta_key, Sensitive_Data::sanitize($meta_value, $meta_key), $actingUserId], true);
     }
 
     /* =======================================================================
@@ -319,22 +383,19 @@ class Async_Tracker
      */
     public static function async_updated_option(string $option, mixed $old_option_value, mixed $new_option_value): void
     {
-        if (!Option_Utility::should_track_option($option, $old_option_value, $new_option_value)) {
+        if (!str_starts_with($option, 'widget_') && !Option_Utility::should_track_option($option, $old_option_value, $new_option_value)) {
             return;
         }
 
-        // Skip excessively large option values to prevent memory/payload issues.
-        if (self::isOptionValueTooLarge($old_option_value) || self::isOptionValueTooLarge($new_option_value)) {
-            Debug::info("Skipping large option '{$option}'");
-            return;
-        }
-
+        // Unknown option payloads are represented by tiny metadata-only markers.
+        [$old_option_value, $new_option_value] = Sensitive_Data::option_values($option, $old_option_value, $new_option_value);
+        self::mark_changed('widget');
         $actingUserId = get_current_user_id();
         $args         = [$option, $old_option_value, $new_option_value, $actingUserId];
 
-        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_updated_option', $args, self::GROUP)) {
-            self::scheduleUnique('middle_updated_option', $args, true);
-        }
+        // Every genuine option update must be queued independently, even if the
+        // queue still contains a previous redacted change with identical markers.
+        self::scheduleAction('middle_updated_option', $args, true);
     }
 
     /**
@@ -345,7 +406,7 @@ class Async_Tracker
     public static function async_load_themes(): void
     {
         if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_load_themes', [], self::GROUP)) {
-            self::scheduleUnique('middle_load_themes');
+            self::scheduleUnique('middle_load_themes', [], true);
         }
     }
 
@@ -356,7 +417,7 @@ class Async_Tracker
      */
     public static function async_load_theme_install(): void
     {
-        self::scheduleUnique('middle_load_theme_install');
+        self::scheduleUnique('middle_load_theme_install', [], true);
     }
 
     /**
@@ -436,6 +497,7 @@ class Async_Tracker
     public static function async_pre_post_update(int $post_id, array $data): void
     {
         $userId = get_current_user_id();
+        $data = Sensitive_Data::sanitize($data);
 
         if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_pre_post_update', [$post_id, $data, $userId], self::GROUP)) {
             self::scheduleUnique('middle_pre_post_update', [$post_id, $data, $userId], true);
@@ -476,9 +538,9 @@ class Async_Tracker
     {
         $userId = get_current_user_id();
 
-        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_update_post_meta', [$meta_id, $post_id, $meta_key, $meta_value, $userId], self::GROUP)) {
-            self::scheduleUnique('middle_update_post_meta', [$meta_id, $post_id, $meta_key, $meta_value, $userId], true);
-        }
+        // A sensitive meta value may be represented by the same marker every
+        // time. Do not deduplicate separate updates against pending jobs.
+        self::scheduleAction('middle_update_post_meta', [$meta_id, $post_id, $meta_key, Sensitive_Data::sanitize($meta_value, $meta_key), $userId], true);
     }
 
     /**
@@ -543,7 +605,7 @@ class Async_Tracker
      */
     public static function async_added_term_relationship(int $post_id, int $tt_id, string $taxonomy): void
     {
-        self::scheduleAction('middle_added_term_relationship', [$post_id, $tt_id, $taxonomy]);
+        self::scheduleAction('middle_added_term_relationship', [$post_id, $tt_id, $taxonomy, get_current_user_id()], true);
     }
 
     /**
@@ -576,7 +638,7 @@ class Async_Tracker
      */
     public static function async_deleted_term_relationships(int $post_id, array $tt_ids, string $taxonomy): void
     {
-        self::scheduleAction('middle_deleted_term_relationships', [$post_id, $tt_ids, $taxonomy]);
+        self::scheduleAction('middle_deleted_term_relationships', [$post_id, $tt_ids, $taxonomy, get_current_user_id()], true);
     }
 
     /**
@@ -654,7 +716,7 @@ class Async_Tracker
     public static function async_add_post_meta(int $post_id, string $meta_key, mixed $meta_value): void
     {
         $actingUserId = get_current_user_id();
-        self::scheduleAction('middle_add_post_meta', [$post_id, $meta_key, $meta_value, $actingUserId], true);
+        self::scheduleAction('middle_add_post_meta', [$post_id, $meta_key, Sensitive_Data::sanitize($meta_value, $meta_key), $actingUserId], true);
     }
 
 	/**
@@ -708,7 +770,7 @@ class Async_Tracker
         // Event::create() then discards the event. See F-09.
         // Core updates can also be automatic, in which case there is no user at all -
         // the consumer passes all_users:true so the event is recorded either way.
-        self::scheduleAction('middle_core_updated_successfully', [$wp_version, get_current_user_id()]);
+        self::scheduleAction('middle_core_updated_successfully', [$wp_version, get_current_user_id()], true);
     }
 
     /**
@@ -745,6 +807,13 @@ class Async_Tracker
      */
     public static function async_upgrader_process_complete_plugin(WP_Upgrader $upgrader, array $hook_extra): void
     {
+        // WordPress can invoke updater callbacks during a failed/rolled-back
+        // installation. Never queue a successful-upgrade label for an error,
+        // missing install result or incomplete package operation.
+        if ( ! isset( $upgrader->result ) || ! is_array( $upgrader->result )
+            || is_wp_error( $upgrader->result ) ) {
+            return;
+        }
         $payload = (object) [
             'new_plugin_data' => isset($upgrader->new_plugin_data) ? $upgrader->new_plugin_data : null,
             'result'          => isset($upgrader->result) ? [
@@ -828,21 +897,18 @@ class Async_Tracker
      */
     public static function async_update_option_plugin(string $option, mixed $old_value, mixed $value): void
     {
-        if (!Option_Utility::should_track_option($option, $old_value, $value)) {
+        // The plugin tracker consumes only the core auto-update plugin list.
+        // Other settings are handled by Option_Tracker where appropriate.
+        if ($option !== 'auto_update_plugins' || !Option_Utility::should_track_option($option, $old_value, $value)) {
             return;
         }
 
-        // Skip excessively large option values to prevent memory/payload issues.
-        if (self::isOptionValueTooLarge($old_value) || self::isOptionValueTooLarge($value)) {
-            Debug::info("Skipping large plugin option '{$option}'");
-            return;
-        }
-
+        // Unknown option payloads are represented by tiny metadata-only markers.
+        [$old_value, $value] = Sensitive_Data::option_values($option, $old_value, $value);
         $actingUserId = get_current_user_id();
         
-        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_update_option_plugin', [$option, $old_value, $value, $actingUserId], self::GROUP)) {
-            self::scheduleUnique('middle_update_option_plugin', [$option, $old_value, $value, $actingUserId], true);
-        }
+        // Do not deduplicate on redacted values; distinct updates have identical markers.
+        self::scheduleAction('middle_update_option_plugin', [$option, $old_value, $value, $actingUserId], true);
     }
 
     /**
@@ -864,26 +930,15 @@ class Async_Tracker
             return;
         }
 
-        // Mark that this request had option changes worth logging.
+        // Capture on the original request. Sanitization happens BEFORE the
+        // batch reaches wp_options; the batch is flushed on that request's
+        // shutdown, so Action Scheduler cannot run a writer after the flush.
+        [$safe_old, $safe_new] = Sensitive_Data::option_values($option, $old_value, $value);
         self::mark_changed('option');
-
-        $userId  = get_current_user_id();
-        $batchId = self::getOptionBatchId();
-
-        if (self::shouldCaptureOptionSynchronously($option, $old_value, $value)) {
-            Option_Tracker::capture_option_change_now($batchId, $option, $old_value, $value, $userId, User_Utility::get_ip());
-            return;
-        }
-
-        $args = [$batchId, $option, $old_value, $value, $userId];
-
-        if (
-            !function_exists('as_has_scheduled_action') ||
-            !as_has_scheduled_action('middle_update_option_option', $args, self::GROUP)
-        ) {
-            // Include client IP as last argument (not part of uniqueness key)
-            self::scheduleUnique('middle_update_option_option', $args, true);
-        }
+        Option_Tracker::capture_option_change_now(
+            self::getOptionBatchId(), $option, $safe_old, $safe_new,
+            get_current_user_id(), User_Utility::get_ip_context_token()
+        );
     }
 
     /**
@@ -931,24 +986,16 @@ class Async_Tracker
      */
     public static function async_update_option_widget(string $option, mixed $old_value, mixed $value): void
     {
-        if (!Option_Utility::should_track_option($option, $old_value, $value)) {
+        if ($option !== 'sidebars_widgets' && !str_starts_with($option, 'widget_') && !Option_Utility::should_track_option($option, $old_value, $value)) {
             return;
         }
 
-        // Skip excessively large option values to prevent memory/payload issues.
-        if (self::isOptionValueTooLarge($old_value) || self::isOptionValueTooLarge($value)) {
-            Debug::info("Skipping large widget option '{$option}'");
-            return;
-        }
-        
+        // Redact even very large widget payloads; never silently lose the event.
+        [$old_value, $value] = Sensitive_Data::option_values($option, $old_value, $value);
+        self::mark_changed('widget');
         $userId = get_current_user_id();
 
-        if (
-            !function_exists('as_has_scheduled_action') ||
-            !as_has_scheduled_action('middle_update_option_widget', [$option, $old_value, $value, $userId], self::GROUP)
-        ) {
-            self::scheduleUnique('middle_update_option_widget', [$option, $old_value, $value, $userId], true);
-        }
+        self::scheduleAction('middle_update_option_widget', [$option, $old_value, $value, $userId], true);
     }
 
 
@@ -970,7 +1017,9 @@ class Async_Tracker
             return;
         }
 
-        self::scheduleAction('middle_wp_insert_comment', [$id, self::postFilteredData($comment), get_current_user_id()]);
+        // WordPress stores a comment-author IP; retain it only as an unverified
+        // reported candidate when it differs from the verified connection.
+        AS_Guard::enqueue_async('middle_wp_insert_comment', [$id, self::postFilteredData($comment), get_current_user_id(), User_Utility::get_comment_ip_context_token($comment)], self::GROUP, false);
     }
 
     /**
@@ -1004,7 +1053,7 @@ class Async_Tracker
         // Only enqueue when the payload is the shape we expect. Anything else is passed
         // straight through untouched.
         if (is_array($data) && is_array($comment) && is_array($commentarr)) {
-            self::scheduleAction('middle_wp_update_comment_data', [$data, $comment, $commentarr]);
+            self::scheduleAction('middle_wp_update_comment_data', [$data, $comment, $commentarr, get_current_user_id()], true);
         }
 
         return $data;
@@ -1024,7 +1073,7 @@ class Async_Tracker
             return;
         }
 
-        self::scheduleAction('middle_edit_comment', [$comment_id, $data]);
+        self::scheduleAction('middle_edit_comment', [$comment_id, $data, get_current_user_id()], true);
     }
 
     /**
@@ -1041,7 +1090,7 @@ class Async_Tracker
             return;
         }
 
-        self::scheduleAction('middle_delete_comment', [$comment_id, self::postFilteredData($comment), get_current_user_id()]);
+        self::scheduleAction('middle_delete_comment', [$comment_id, self::postFilteredData($comment), get_current_user_id()], true);
     }
 
     /**
@@ -1059,7 +1108,7 @@ class Async_Tracker
             return;
         }
 
-        self::scheduleAction('middle_transition_comment_status', [$new_status, $old_status, self::postFilteredData($comment), get_current_user_id()]);
+        self::scheduleAction('middle_transition_comment_status', [$new_status, $old_status, self::postFilteredData($comment), get_current_user_id()], true);
     }
 
     /**
@@ -1076,7 +1125,7 @@ class Async_Tracker
             return;
         }
 
-        self::scheduleAction('middle_trashed_post_comments', [$post_id, $statuses]);
+        self::scheduleAction('middle_trashed_post_comments', [$post_id, $statuses, get_current_user_id()], true);
     }
 
     /**
@@ -1092,7 +1141,7 @@ class Async_Tracker
             return;
         }
 
-        self::scheduleAction('middle_untrash_post_comments', [$post_id]);
+        self::scheduleAction('middle_untrash_post_comments', [$post_id, get_current_user_id()], true);
     }
 
     /* =======================================================================

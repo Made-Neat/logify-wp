@@ -35,6 +35,7 @@ jQuery(($) => {
         return {
             logify_wp_col_user: '',
             logify_wp_col_ip: '',
+            logify_wp_col_object: '',
             logify_wp_col_notes: ''
         };
     };
@@ -44,9 +45,7 @@ jQuery(($) => {
     // Set up the datatable.
     let eventsTable = $('#logify-wp-activity-log').DataTable({
         processing: true,
-        language: {
-            processing: 'Please wait...'
-        },
+        language: window.logifyWpTableLanguage(),
         serverSide: true,
         ajax: {
             url: logifyWpLogPage.ajaxUrl,
@@ -107,7 +106,8 @@ jQuery(($) => {
                 searchable: false
             }
         ],
-        order: [[1, 'desc']],
+        // Event IDs remain monotonic even when the site's timezone changes.
+        order: [[0, 'desc']],
         layout: {
             topStart: null,
             topEnd: null,
@@ -115,11 +115,15 @@ jQuery(($) => {
         columnDefs: [
             {
                 targets: 2, // User column
-                visible: columnPrefs.logify_wp_col_user === 'visible'
+                visible: columnPrefs.logify_wp_col_user !== 'hidden'
             },
             {
                 targets: 3, // IP column
-                visible: columnPrefs.logify_wp_col_ip === 'visible'
+                visible: columnPrefs.logify_wp_col_ip !== 'hidden'
+            },
+            {
+                targets: 5, // Object column (hidden by default)
+                visible: columnPrefs.logify_wp_col_object === 'visible'
             },
             {
                 targets: 7, // Notes column
@@ -132,11 +136,18 @@ jQuery(($) => {
         ],
         paging: true,
         lengthChange: false,
+        // Without this DataTables measures the content and sets inline column widths on every
+        // draw, so the table visibly shrinks and grows as the data changes and never lines up
+        // with the filter panel above it. Widths are set in CSS instead.
+        autoWidth: false,
         pageLength: +$('#logify_wp_events_per_page').val(),
         createdRow: (row, data, dataIndex) => {
             const $row = $(row);
             const eventId = $row.find('td:first-child').text();
-            $row.addClass('logify-wp-summary-row').attr('data-event-id', eventId);
+            $row.addClass('logify-wp-summary-row')
+                .attr('data-event-id', eventId)
+                .attr('tabindex', '0')
+                .attr('aria-expanded', 'false');
         },
         drawCallback: function (settings) {
             if (!eventIdToExpand) {
@@ -153,19 +164,23 @@ jQuery(($) => {
         }
     });
 
+    // Let the shared note dialog refresh this table after a delete.
+    window.logifyWpReloadTable = () => eventsTable.ajax.reload(null, false);
+
     // Show the details row for a given summary row.
     let showDetailsRow = $tr => {
         let row = eventsTable.row($tr);
         let classes = 'logify-wp-details-row shown';
         row.child(row.data().details, classes).show();
-        $tr.addClass('shown');
+        $tr.addClass('shown').attr('aria-expanded', 'true');
     };
 
     // Initialize column visibility toggles
     let initColumnVisibilityToggles = () => {
         // Get current column preferences.
-        let displayUser = columnPrefs.logify_wp_col_user === 'visible';
-        let displayIp = columnPrefs.logify_wp_col_ip === 'visible';
+        let displayUser = columnPrefs.logify_wp_col_user !== 'hidden';
+        let displayIp = columnPrefs.logify_wp_col_ip !== 'hidden';
+        let displayObject = columnPrefs.logify_wp_col_object === 'visible';
         let displayNotes = columnPrefs.logify_wp_col_notes !== 'hidden';
         let notesEnabled = logifyWpLogPage && logifyWpLogPage.notesEnabled;
 
@@ -193,14 +208,23 @@ jQuery(($) => {
                         <input type="checkbox" class="logify-wp-col-toggle" data-column-name="logify_wp_col_ip" aria-label="Toggle Source IP column visibility" ${displayIp ? 'checked' : ''}>
                         Source IP
                     </label>
+                    <label class="logify-wp-toggle-label-item">
+                        <input type="checkbox" class="logify-wp-col-toggle" data-column-name="logify_wp_col_object" aria-label="Toggle Object column visibility" ${displayObject ? 'checked' : ''}>
+                        Object
+                    </label>
                     ${notesCheckboxHtml}
                 </div>
             </div>
         `;
         
-        // Insert before the table.
-        $(toggleHtml).insertBefore('#logify-wp-activity-log');
-        
+        // Note: the checkboxes are rendered by PHP into the Screen Options panel, which is
+        // where WordPress users expect column controls. This used to inject its own
+        // "Show/Hide Columns" strip above the table; toggleHtml is kept only as a fallback
+        // for the case where the Screen Options panel is unavailable.
+        if (!$('.logify-wp-screen-options .logify-wp-col-toggle').length) {
+            $(toggleHtml).insertBefore('#logify-wp-activity-log');
+        }
+
         // Handle column toggle clicks.
         $(document).on('change', '.logify-wp-col-toggle', function() {
             let columnName = $(this).data('column-name');
@@ -239,19 +263,41 @@ jQuery(($) => {
         const mapping = {
             'logify_wp_col_user': 'display_name',
             'logify_wp_col_ip': 'user_ip',
+            'logify_wp_col_object': 'object_name',
             'logify_wp_col_notes': 'note_content'
         };
         return mapping[metaName] || null;
     };
 
-    // Add event listener for opening and closing details
+    // Collapse the details for a given summary row.
+    let hideDetailsRow = $tr => {
+        eventsTable.row($tr).child.hide();
+        $tr.removeClass('shown').attr('aria-expanded', 'false');
+    };
+
+    // Toggle a summary row.
+    let toggleDetailsRow = $tr => {
+        if (eventsTable.row($tr).child.isShown()) {
+            hideDetailsRow($tr);
+        } else {
+            showDetailsRow($tr);
+        }
+    };
+
+    // Add event listener for opening and closing details.
     eventsTable.on('click', 'tr', function (e) {
-        // Ignore link clicks.
-        if ($(e.target).is('a, a *')) {
+        // Ignore anything interactive.
+        if ($(e.target).closest('a, button, input, select, textarea, label').length) {
             return;
         }
 
-        // Get the row.
+        // Don't fight a text selection. Selecting text inside a row used to collapse it the
+        // moment the mouse was released, which made the details impossible to copy.
+        const selection = window.getSelection && window.getSelection();
+        if (selection && selection.toString().length > 0) {
+            return;
+        }
+
         let $tr = $(this);
 
         // Ignore clicks on the header row.
@@ -259,50 +305,44 @@ jQuery(($) => {
             return;
         }
 
-        // Check and see which type of row was clicked.
-        let isSummaryRow = $tr.hasClass('logify-wp-summary-row');
-        let isDetailsRow = $tr.hasClass('logify-wp-details-row');
-
-        // If neither (for example, clicking a row in a details table), bail.
-        if (!isSummaryRow && !isDetailsRow) {
+        // Only the summary row toggles. Clicking inside an open details row previously closed
+        // it, so any click while reading - including the click that starts a drag-select -
+        // dismissed what you were reading.
+        if (!$tr.hasClass('logify-wp-summary-row')) {
             return;
         }
 
-        // Get the datatable row object.
-        let row = eventsTable.row($tr);
+        toggleDetailsRow($tr);
+    });
 
-        if (isSummaryRow) {
-            // Summary row clicked.
-            if (row.child.isShown()) {
-                // Remove the shown class from the summary row.
-                $tr.removeClass('shown');
-                // Hide the child details row.
-                row.child.hide();
-            }
-            else {
-                showDetailsRow($tr);
-            }
-        }
-        else {
-            // Details row clicked.
-            // Remove the shown class from the summary row.
-            $tr.prev().removeClass('shown');
-            // Hide the details row.
-            row.child.hide();
+    // Keyboard support: summary rows behave like the disclosure controls they are.
+    $('#logify-wp-activity-log').on('keydown', 'tr.logify-wp-summary-row', function (e) {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault();
+            toggleDetailsRow($(this));
         }
     });
 
     // Setup behavior for the search box.
-    $('#logify-wp-search-filter').on('keyup', function () {
+    let searchTimer = null;
+    $('#logify-wp-search-filter').on('input', function () {
         // Remember the search string.
         let searchString = this.value;
         wpCookies.set('search', searchString, false, false, false, false);
 
-        // If there are 3 or more characters in the field, or 0, search.
+        // Debounced. Each search runs a LIKE across the events table joined to users, so
+        // firing one per keystroke is the easiest way to make a shared-hosting database
+        // struggle. 350ms is below the threshold where typing feels laggy.
+        window.clearTimeout(searchTimer);
+
         if (searchString.length >= 3 || searchString.length === 0) {
-            eventsTable.search(searchString);
-            eventsTable.ajax.reload();
+            searchTimer = window.setTimeout(() => {
+                eventsTable.search(searchString);
+                eventsTable.ajax.reload();
+            }, 350);
         }
+
+        updateActiveFilterSummary();
     });
 
     // Get the selected object types.
@@ -390,44 +430,27 @@ jQuery(($) => {
     };
 
     // Setup behavior of object type checkboxes.
-    $('.logify-wp-object-type-filter-item input').on('change', function (event) {
-        // Cancel the default behavior of the checkbox.
-        event.preventDefault();
+    // Setup behavior of the object type checkboxes.
+    //
+    // The label fills the coloured box (see the CSS), so clicking anywhere in the box toggles
+    // the checkbox natively. Previously a click handler on the box toggled the checkbox in
+    // JavaScript as well, which meant clicking the label toggled it twice - once by the
+    // browser, once by us - and nothing appeared to happen. Only a click on the small gap
+    // around the label worked.
+    $('#logify-wp-object-type-filter').on('change', 'input[type="checkbox"]', function () {
+        const $checkbox = $(this);
+        const isChecked = $checkbox.is(':checked');
 
-        // Click the surrounding div.
-        $(this).parent().click();
-    });
-
-    // Setup behavior of object type containers (i.e. the colored divs wrapping the checkbox and label).
-    $('.logify-wp-object-type-filter-item').on('click', function (event) {
-        // Toggle the checkbox.
-        let checkbox = $(this).find('input[type="checkbox"]');
-        let isChecked = checkbox.is(':checked');
-        checkbox.prop('checked', !isChecked);
-        isChecked = !isChecked;
-
-        // If this is the 'All' checkbox, check or uncheck all others.
-        if (checkbox.is('#logify-wp-show-all-events')) {
-            if (isChecked) {
-                // All is checked, so check all others.
-                $('#logify-wp-object-type-checkboxes input').prop('checked', true);
-            }
-            else {
-                // Otherwise, uncheck all others.
-                $('#logify-wp-object-type-checkboxes input').prop('checked', false);
-            }
-        }
-        else {
-            // Update state of 'All' checkbox to match state of others.
+        if ($checkbox.is('#logify-wp-show-all-events')) {
+            // "All" sets every other box to match it.
+            $('#logify-wp-object-type-checkboxes input[type="checkbox"]').prop('checked', isChecked);
+        } else {
+            // "All" reflects whether every type is now selected.
             $('#logify-wp-show-all-events').prop('checked', allObjectTypesSelected());
         }
 
-        // Update cookie.
-        let selectedObjectTypes = getSelectedObjectTypes();
-        // console.log(selectedObjectTypes);
-        wpCookies.set('object_types', JSON.stringify(selectedObjectTypes), false, false, false, false);
+        wpCookies.set('object_types', JSON.stringify(getSelectedObjectTypes()), false, false, false, false);
 
-        // Reload the page.
         eventsTable.ajax.reload();
     });
 
@@ -623,4 +646,73 @@ jQuery(($) => {
 
     // Initialize the search form.
     initSearchForm();    
+
+    // ---------------------------------------------------------------------------------------
+    // Filter chips, loading overlay and pagination bar all come from common-page.js, so this
+    // screen and the Notes log behave identically and there is one copy to maintain.
+    // ---------------------------------------------------------------------------------------
+    window.logifyWpInitFilters({ table: eventsTable });
+
+    const updateActiveFilterSummary = () => {
+        if (window.logifyWpRefreshChips) {
+            window.logifyWpRefreshChips();
+        }
+    };
+
+    const $tableWrapper = $('.logify-wp-table-wrapper');
+    const loadingStrings = (logifyWpLogPage && logifyWpLogPage.i18n) || {};
+
+    window.logifyWpInitTableChrome(eventsTable);
+
+    // ---------------------------------------------------------------------------------------
+    // Object type filter: an empty selection now matches nothing, so say so rather than
+    // leaving an unexplained empty table.
+    // ---------------------------------------------------------------------------------------
+    const syncObjectTypeNotice = () => {
+        const anyChecked = $('#logify-wp-object-type-checkboxes input[type="checkbox"]:checked').length > 0;
+        $('#logify-wp-no-object-types').prop('hidden', anyChecked);
+    };
+
+    $('#logify-wp-select-all-object-types').on('click', function () {
+        $('#logify-wp-show-all-events').prop('checked', true);
+        $('#logify-wp-object-type-checkboxes input[type="checkbox"]').prop('checked', true);
+
+        wpCookies.set('object_types', JSON.stringify(getSelectedObjectTypes()), false, false, false, false);
+
+        syncObjectTypeNotice();
+        updateActiveFilterSummary();
+        eventsTable.ajax.reload();
+    });
+
+    $('#logify-wp-object-type-filter').on('change', 'input[type="checkbox"]', () => {
+        syncObjectTypeNotice();
+        updateActiveFilterSummary();
+    });
+
+    syncObjectTypeNotice();
+
+    // The search term lives in DataTables rather than a cookie, so it has to travel on the
+    // export link for the export to match what is on screen.
+    const syncExportLink = () => {
+        const $link = $('#logify-wp-export-csv');
+
+        if (!$link.length) {
+            return;
+        }
+
+        const url = new URL($link.attr('href'), window.location.origin);
+        const term = $('#logify-wp-search-filter').val() || '';
+
+        if (term) {
+            url.searchParams.set('search', term);
+        } else {
+            url.searchParams.delete('search');
+        }
+
+        $link.attr('href', url.toString());
+    };
+
+    eventsTable.on('draw.dt', syncExportLink);
+    $('#logify-wp-search-filter').on('input', syncExportLink);
+    syncExportLink();
 });

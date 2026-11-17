@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -63,6 +68,9 @@ class Property_Repository extends Repository {
 		if ( ! $prop instanceof Property ) {
 			throw new InvalidArgumentException( esc_html( 'Entity must be an instance of Property.' ) );
 		}
+
+		// Sensitive fields are persisted with redacted values, not silently omitted.
+		// object_to_record() is the final write-time redaction boundary.
 
 		// Check if we're inserting or updating.
 		$inserting = false;
@@ -209,13 +217,30 @@ class Property_Repository extends Repository {
 	 * @param Property $prop The Property object.
 	 * @return array The database record as an associative array.
 	 */
+	/**
+	 * Detect credential and token fields irrespective of which tracker supplied them.
+	 * Use a deliberate deny-list rather than storing secrets and only hiding them in HTML.
+	 */
+	public static function is_sensitive_key( string $key ): bool {
+		return Sensitive_Data::is_secret_key( $key );
+	}
+
+	/** Restrict the serialized value stored per property without corrupting serialized blobs. */
+	private static function bounded_value( mixed $value ): ?string {
+		$serialized = Serialization::serialize( $value );
+		$max_bytes = max( 1024, min( 65536, (int) apply_filters( 'logify_wp_max_property_bytes', 16384 ) ) );
+		return is_string( $serialized ) && strlen( $serialized ) > $max_bytes
+			? Serialization::serialize( '[Logify WP: oversized property value omitted]' )
+			: $serialized;
+	}
+
 	public static function object_to_record( Property $prop ): array {
 		return array(
 			'event_id'   => $prop->event_id,
 			'prop_key'   => $prop->key,
 			'table_name' => $prop->table_name,
-			'val'        => Serialization::serialize( $prop->val ),
-			'new_val'    => Serialization::serialize( $prop->new_val ),
+			'val'        => self::bounded_value( Sensitive_Data::sanitize( $prop->val, $prop->key ) ),
+			'new_val'    => self::bounded_value( Sensitive_Data::sanitize( $prop->new_val, $prop->key ) ),
 		);
 	}
 
@@ -228,6 +253,43 @@ class Property_Repository extends Repository {
 	 * @param int $event_id The ID of the event.
 	 * @return ?array Array of Property objects or null if none found.
 	 */
+	/**
+	 * Select all property records for a set of events, in a single query.
+	 *
+	 * Used by the log page, which previously loaded properties one event at a time.
+	 *
+	 * @param int[] $event_ids The event IDs.
+	 * @return array Map of event ID => array of Property objects keyed by property key.
+	 */
+	public static function load_by_event_ids( array $event_ids ): array {
+		global $wpdb;
+
+		$event_ids = array_values( array_unique( array_filter( array_map( 'intval', $event_ids ) ) ) );
+		if ( ! $event_ids ) {
+			return array();
+		}
+
+		$placeholders = Database::in_placeholders( count( $event_ids ) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$recordset = $wpdb->get_results(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+			$wpdb->prepare(
+				"SELECT * FROM %i WHERE event_id IN ($placeholders)",
+				array_merge( array( self::get_table_name() ), $event_ids )
+			),
+			ARRAY_A
+		);
+
+		$map = array();
+		foreach ( (array) $recordset as $record ) {
+			$prop = self::record_to_object( $record );
+			$map[ (int) $record['event_id'] ][ $prop->key ] = $prop;
+		}
+
+		return $map;
+	}
+
 	public static function load_by_event_id( int $event_id ): ?array {
 		global $wpdb;
 

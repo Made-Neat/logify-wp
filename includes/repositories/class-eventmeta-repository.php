@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -216,6 +221,42 @@ class Eventmeta_Repository extends Repository {
 	 * @param int $event_id The ID of the event.
 	 * @return ?array Array of metadata or null if none found.
 	 */
+	/**
+	 * Select all eventmeta records for a set of events, in a single query.
+	 *
+	 * Used by the log page, which previously loaded metadata one event at a time.
+	 *
+	 * @param int[] $event_ids The event IDs.
+	 * @return array Map of event ID => array of Eventmeta objects keyed by meta key.
+	 */
+	public static function load_by_event_ids( array $event_ids ): array {
+		global $wpdb;
+
+		$event_ids = array_values( array_unique( array_filter( array_map( 'intval', $event_ids ) ) ) );
+		if ( ! $event_ids ) {
+			return array();
+		}
+
+		$placeholders = Database::in_placeholders( count( $event_ids ) );
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$recordset = $wpdb->get_results(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+			$wpdb->prepare(
+				"SELECT * FROM %i WHERE event_id IN ($placeholders)",
+				array_merge( array( self::get_table_name() ), $event_ids )
+			),
+			ARRAY_A
+		);
+
+		$map = array();
+		foreach ( (array) $recordset as $record ) {
+			$map[ (int) $record['event_id'] ][ $record['meta_key'] ] = self::record_to_object( $record );
+		}
+
+		return $map;
+	}
+
 	public static function load_by_event_id( int $event_id ): ?array {
 		global $wpdb;
 

@@ -1,0 +1,1732 @@
+# Copyright (C) 2026 Made Neat
+# This file is distributed under the GPLv2 or later.
+msgid ""
+msgstr ""
+"Project-Id-Version: Logify WP - Activity Log & User Audit Log 1.5.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/logify-wp/\n"
+"POT-Creation-Date: 2026-10-28 03:34+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: \n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:483
+#, python-format
+msgid " (%s ago)"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:486
+#, python-format
+msgid " (%s)"
+msgstr ""
+
+#. translators: _MAX_ is replaced with the unfiltered total; keep it as it is.
+#: includes/services/class-admin.php:601
+msgid " (of _MAX_)"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Create_Command.php:127
+msgid "%1$s action (%2$d) scheduled."
+msgstr ""
+
+#. translators: %d: number of filters currently applied.
+#: includes/services/class-admin.php:597
+#, python-format
+msgid "%d filters applied."
+msgstr ""
+
+#. translators: %d: number of users found.
+#: includes/services/class-admin.php:507
+#, python-format
+msgid "%d users found."
+msgstr ""
+
+#. translators: %s: object type, for example Post or Account.
+#: includes/services/class-log-page.php:827 includes/services/class-notes-page.php:708
+#, python-format
+msgid "%s Details"
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore.php:1068
+#, python-format
+msgid "%s Support for strings longer than this will be removed in a future version."
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler.php:271
+#, python-format
+msgid "%s() was called before the Action Scheduler data store was initialized"
+msgstr ""
+
+#: templates/settings-page.php:177
+msgid "(always has access)"
+msgstr ""
+
+#: includes/services/class-admin.php:502 templates/settings-page.php:219
+msgid "(has access via role)"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:394
+#, python-format
+msgid "A new queue has begun processing. <a href=\"%s\">View actions in-progress &raquo;</a>"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:266
+msgid "About"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:269
+#, python-format
+msgid "About Action Scheduler %s"
+msgstr ""
+
+#: includes/services/class-admin.php:508
+msgid "Access granted. Remember to save your changes."
+msgstr ""
+
+#: includes/services/class-admin.php:509
+msgid "Access removed. Remember to save your changes."
+msgstr ""
+
+#: includes/services/class-notes-page.php:697
+msgid "Account"
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_TaxonomyRegistrar.php:22
+msgid "Action Group"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_wcSystemStatus.php:111
+msgid "Action Scheduler"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_WPCommentCleaner.php:126
+msgid ""
+"Action Scheduler has migrated data to custom tables; however, orphaned log entries exist in "
+"the WordPress Comments table. %1$s <a href=\"%2$s\">Learn more &raquo;</a>"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:271
+msgid ""
+"Action Scheduler is a scalable, traceable job queue for background processing large sets of "
+"actions. Action Scheduler works by triggering an action hook to run at some time in the "
+"future. Scheduled actions can also be scheduled to run on a recurring schedule."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:275
+msgid ""
+"Action Scheduler is currently being loaded from the following location. This can be useful "
+"when debugging, or if requested by the support team."
+msgstr ""
+
+#: action-scheduler/classes/migration/Controller.php:183
+msgid "Action Scheduler migration in progress. The list of scheduled actions may be incomplete."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:512
+msgid "Action Scheduler was unable to delete action %1$d. Reason: %2$s"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_wcSystemStatus.php:124
+msgid "Action Status"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_InvalidActionException.php:22
+msgid "Action [%1$s] has an invalid schedule: %2$s"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_InvalidActionException.php:40
+msgid "Action [%1$s] has invalid arguments. It cannot be JSON decoded to an array. $args = %2$s"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:297
+msgid "Action statuses are Pending, Complete, Canceled, Failed"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Store.php:380
+#, python-format
+msgid ""
+"ActionScheduler_Action::$args too long. To ensure the args column can be indexed, action "
+"args should not be more than %d characters when encoded as JSON."
+msgstr ""
+
+#: templates/log-page.php:210 templates/notes-page.php:109
+msgid "Actions"
+msgstr ""
+
+#: includes/models/class-note.php:154
+msgid "Activity ID is required."
+msgstr ""
+
+#: templates/settings-page.php:121
+msgid "Activity by users in the selected roles is written to the log. Unselected roles are ignored."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:302
+msgid "Activity log for the action."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_PostTypeRegistrar.php:37
+msgid "Add"
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_PostTypeRegistrar.php:38
+msgid "Add New Scheduled Action"
+msgstr ""
+
+#: includes/services/class-log-page.php:622
+msgid "Add Note"
+msgstr ""
+
+#: includes/services/class-admin.php:568 templates/notes-page.php:85
+msgid "Add note"
+msgstr ""
+
+#: templates/settings-page.php:188
+msgid "Additional users with access"
+msgstr ""
+
+#: templates/settings-page.php:339
+msgid "Adds a Logify WP menu to the toolbar for quick access to the log."
+msgstr ""
+
+#: templates/settings-page.php:327
+msgid "Adds a Notes column to the log and a Notes page, so you can record why something was changed."
+msgstr ""
+
+#: templates/settings-page.php:157
+msgid "Administrators always have access. Grant access to other roles, or to individual people."
+msgstr ""
+
+#: templates/log-page.php:59 templates/log-page.php:73 templates/log-page.php:87
+#: templates/log-page.php:101 templates/log-page.php:115 templates/log-page.php:131
+#: templates/notes-page.php:59 templates/notes-page.php:73
+msgid "All"
+msgstr ""
+
+#: includes/services/class-admin.php:505
+msgid "Already has access"
+msgstr ""
+
+#: action-scheduler/functions.php:136
+msgid "An integer was expected but \"%1$s\" (%2$s) was received."
+msgstr ""
+
+#: templates/settings-page.php:264
+msgid ""
+"Anything older than this is deleted by a daily background task. Longer periods mean larger "
+"database tables."
+msgstr ""
+
+#: includes/services/class-privacy.php:141
+msgid "Approximate location"
+msgstr ""
+
+#: templates/settings-page.php:374
+msgid "Are you sure you want to delete all the log records? This action cannot be undone."
+msgstr ""
+
+#: templates/settings-page.php:361
+msgid ""
+"Are you sure you want to migrate the data from the old WP Logify plugin to the new Logify WP"
+" plugin? This will remove all log records in the new plugin."
+msgstr ""
+
+#: templates/settings-page.php:364
+msgid ""
+"Are you sure you want to permanently delete all activity logs AND ALL NOTES? This cannot be "
+"undone."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:98
+msgid "Arguments"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_DataController.php:149
+msgid "Attempting to reduce used memory..."
+msgstr ""
+
+#: includes/services/class-privacy.php:148
+msgid "Author"
+msgstr ""
+
+#: templates/log-page.php:244 templates/notes-page.php:143
+msgid "Cancel"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:134
+msgid "Cancel the action now to avoid it being run in future"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Store.php:462
+msgid "Canceled"
+msgstr ""
+
+#: action-scheduler/functions.php:289
+msgid "Caught exception while cancelling action \"%1$s\": %2$s"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ActionFactory.php:327
+msgid "Caught exception while enqueuing action \"%1$s\": %2$s"
+msgstr ""
+
+#: templates/settings-page.php:115
+msgid "Choose whose activity is recorded, and whether comments are included."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:122
+msgid "Claim ID"
+msgstr ""
+
+#: includes/services/class-log-page.php:306
+msgid "Column preference saved."
+msgstr ""
+
+#: includes/services/class-admin.php:310
+msgid "Columns"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Store.php:458
+msgid "Complete"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/ActionScheduler_WPCLI_QueueRunner.php:155
+msgid "Completed processing action %1$s with hook: %2$s"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:433
+msgid "Could not process change for action: \"%1$s\" (ID: %2$d). Error: %3$s"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_wcSystemStatus.php:126
+msgid "Count"
+msgstr ""
+
+#: includes/services/class-privacy.php:146
+msgid "Created"
+msgstr ""
+
+#: templates/settings-page.php:47
+msgid ""
+"Data migrated successfully. You should verify the data in the new plugin, then deactivate "
+"and delete the old WP Logify plugin."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_wcSystemStatus.php:120
+msgid "Data store:"
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:130
+msgid "Database error."
+msgstr ""
+
+#: includes/services/class-admin.php:573 templates/log-page.php:45 templates/log-page.php:203
+#: templates/notes-page.php:45 templates/notes-page.php:105
+msgid "Date"
+msgstr ""
+
+#: templates/dashboard-widget.php:63
+msgid "Date & Time"
+msgstr ""
+
+#: includes/services/class-export.php:139 includes/services/class-privacy.php:117
+msgid "Date and time (UTC)"
+msgstr ""
+
+#: includes/services/class-export.php:146
+msgid "Date and time (site timezone)"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:92
+msgid "Delete"
+msgstr ""
+
+#: templates/settings-page.php:273
+msgid "Delete all data when uninstalling"
+msgstr ""
+
+#: templates/settings-page.php:374
+msgid "Delete all log records now"
+msgstr ""
+
+#: templates/settings-page.php:368
+msgid "Delete log records"
+msgstr ""
+
+#: templates/log-page.php:242 templates/notes-page.php:141
+msgid "Delete note"
+msgstr ""
+
+#: includes/services/class-admin.php:570
+msgid "Delete this note? This cannot be undone."
+msgstr ""
+
+#: templates/settings-page.php:360
+msgid ""
+"Deletes all activity logs and all Notes, including standalone Notes, immediately. Settings "
+"are kept. This cannot be undone."
+msgstr ""
+
+#: action-scheduler/classes/migration/Config.php:146
+msgid "Destination logger must be configured before running a migration"
+msgstr ""
+
+#: action-scheduler/classes/migration/Config.php:123
+msgid "Destination store must be configured before running a migration"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/System_Command.php:167
+msgid "Detailed information about registered sources is not currently available."
+msgstr ""
+
+#: includes/services/class-admin.php:120
+msgid "Dismiss"
+msgstr ""
+
+#: templates/settings-page.php:318
+msgid "Display"
+msgstr ""
+
+#: templates/settings-page.php:275
+msgid ""
+"Drops the plugin's database tables when it is deleted. Leave this off if you want to keep "
+"your log history through a reinstall."
+msgstr ""
+
+#: templates/settings-page.php:275
+msgid ""
+"Drops the plugin\\'s database tables when it is deleted. Leave this off if you want to keep "
+"your log history through a reinstall."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_PostTypeRegistrar.php:39
+msgid "Edit"
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_PostTypeRegistrar.php:40
+msgid "Edit Scheduled Action"
+msgstr ""
+
+#: includes/services/class-admin.php:569
+msgid "Edit note"
+msgstr ""
+
+#: includes/services/class-log-page.php:690 includes/services/class-notes-page.php:564
+msgid "Email"
+msgstr ""
+
+#: templates/settings-page.php:370
+msgid "Empties the log tables immediately. Your settings are kept. This cannot be undone."
+msgstr ""
+
+#: templates/settings-page.php:325
+msgid "Enable notes"
+msgstr ""
+
+#: includes/services/class-admin.php:134 includes/services/class-admin.php:138
+#: includes/services/class-admin.php:641 includes/services/class-admin.php:646
+#: includes/services/class-data-migration.php:39 includes/services/class-data-migration.php:44
+#: includes/services/class-export.php:85 includes/services/class-export.php:89
+msgid "Error"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/ActionScheduler_WPCLI_QueueRunner.php:168
+msgid "Error processing action %1$s: %2$s"
+msgstr ""
+
+#: action-scheduler/classes/migration/ActionScheduler_DBStoreMigrator.php:49
+#, python-format
+msgid "Error saving action: %s"
+msgstr ""
+
+#: includes/services/class-admin.php:581 includes/services/class-export.php:140
+#: includes/services/class-notes-page.php:701 includes/services/class-privacy.php:121
+#: templates/dashboard-widget.php:65 templates/log-page.php:206
+msgid "Event"
+msgstr ""
+
+#: includes/services/class-log-page.php:729
+msgid "Event Details"
+msgstr ""
+
+#: templates/notes-page.php:108
+msgid "Event ID"
+msgstr ""
+
+#: includes/services/class-admin.php:574 includes/services/class-export.php:292
+#: templates/log-page.php:56
+msgid "Event type"
+msgstr ""
+
+#: templates/dashboard-widget.php:55
+msgid "Events in the last 24 hours"
+msgstr ""
+
+#: templates/dashboard-widget.php:51
+msgid "Events in the last hour"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:261
+#, python-format
+msgid "Every %s"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_QueueRunner.php:249
+msgid "Every minute"
+msgstr ""
+
+#: templates/log-page.php:164
+msgid "Export CSV"
+msgstr ""
+
+#. translators: %s: maximum number of rows, already formatted.
+#: templates/log-page.php:171
+#, python-format
+msgid "Exports the events matching the current filters, up to %s rows."
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Store.php:461
+msgid "Failed"
+msgstr ""
+
+#: includes/services/class-log-page.php:237 includes/services/class-notes-page.php:151
+msgid "Failed to add note."
+msgstr ""
+
+#: includes/services/class-log-page.php:188 includes/services/class-log-page.php:195
+msgid "Failed to delete note."
+msgstr ""
+
+#: includes/services/class-admin.php:571
+msgid "Failed to delete the note."
+msgstr ""
+
+#: includes/services/class-log-page.php:115 includes/services/class-log-page.php:121
+#: includes/services/class-notes-page.php:100 includes/services/class-notes-page.php:106
+msgid "Failed to update note."
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Abstract_ListTable.php:542
+msgid "Filter"
+msgstr ""
+
+#: includes/services/class-admin.php:595
+msgid "Filter removed."
+msgstr ""
+
+#: templates/log-page.php:187 templates/notes-page.php:96
+msgid "Filters:"
+msgstr ""
+
+#: includes/services/class-admin.php:588
+msgid "First page"
+msgstr ""
+
+#: includes/services/class-export.php:290 templates/log-page.php:48 templates/notes-page.php:48
+msgid "From"
+msgstr ""
+
+#: templates/log-page.php:47 templates/notes-page.php:47
+msgid "From date"
+msgstr ""
+
+#: templates/settings-page.php:190
+msgid ""
+"Give a specific person access without changing their role. Search by name, username or email"
+" address."
+msgstr ""
+
+#: includes/services/class-admin.php:585
+msgid "Go"
+msgstr ""
+
+#: includes/services/class-admin.php:584
+msgid "Go to page"
+msgstr ""
+
+#: includes/services/class-admin.php:503
+msgid "Grant access"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:99
+msgid "Group"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:96
+msgid "Hook"
+msgstr ""
+
+#: templates/settings-page.php:246
+msgid "How long records are kept before being removed automatically."
+msgstr ""
+
+#: templates/settings-page.php:284
+msgid "How the visitor IP recorded against each event is worked out."
+msgstr ""
+
+#: includes/services/class-export.php:138 includes/services/class-log-page.php:665
+#: includes/services/class-notes-page.php:547 templates/log-page.php:202
+#: templates/notes-page.php:104
+msgid "ID"
+msgstr ""
+
+#: includes/services/class-admin.php:312
+msgid "ID, Date, Event and Object are always shown. Changes apply immediately."
+msgstr ""
+
+#: includes/services/class-export.php:147 includes/services/class-log-page.php:669
+#: includes/services/class-notes-page.php:551 includes/services/class-privacy.php:137
+msgid "IP address"
+msgstr ""
+
+#: templates/settings-page.php:283
+msgid "IP addresses"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Store.php:460
+msgid "In-progress"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ActionFactory.php:234
+msgid "Invalid action - must be a recurring action."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:1295
+msgid "Invalid action ID. No status found."
+msgstr ""
+
+#: includes/services/class-log-page.php:282
+msgid "Invalid column."
+msgstr ""
+
+#: includes/services/class-log-page.php:67 includes/services/class-notes-page.php:52
+msgid "Invalid note data."
+msgstr ""
+
+#: includes/services/class-log-page.php:170
+msgid "Invalid note."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore.php:318
+msgid "Invalid schedule. Cannot save action."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:426
+msgid "Invalid value for select or count parameter. Cannot query actions."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:365
+msgid ""
+"It appears one or more database tables were missing. Attempting to re-create the missing "
+"table(s)."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_QueueCleaner.php:70
+#, python-format
+msgid "It was not possible to determine a valid cut-off time: %s."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:491
+msgid ""
+"JSON partial matching not supported in your environment. Please check your MySQL/MariaDB "
+"version."
+msgstr ""
+
+#: templates/settings-page.php:249
+msgid "Keep log records for"
+msgstr ""
+
+#: includes/services/class-log-page.php:705 includes/services/class-notes-page.php:579
+msgid "Last active"
+msgstr ""
+
+#: includes/services/class-log-page.php:700 includes/services/class-notes-page.php:574
+msgid "Last login"
+msgstr ""
+
+#: includes/services/class-admin.php:591
+msgid "Last page"
+msgstr ""
+
+#: includes/services/class-admin.php:583
+msgid "Loading events…"
+msgstr ""
+
+#: includes/services/class-export.php:148 includes/services/class-log-page.php:673
+msgid "Location"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:102
+msgid "Log"
+msgstr ""
+
+#: includes/services/class-admin.php:258
+msgid "Log entries per page"
+msgstr ""
+
+#: templates/settings-page.php:36
+msgid "Log records have been deleted."
+msgstr ""
+
+#: templates/settings-page.php:245
+msgid "Log retention"
+msgstr ""
+
+#: includes/services/class-admin.php:160
+msgid "Logify WP"
+msgstr ""
+
+#: includes/services/class-dashboard-widget.php:41
+msgid "Logify WP - Recent Site Activity"
+msgstr ""
+
+#: templates/log-page.php:18
+msgid "Logify WP Events Log"
+msgstr ""
+
+#: templates/notes-page.php:25
+msgid "Logify WP Notes Log"
+msgstr ""
+
+#: templates/settings-page.php:94
+msgid "Logify WP Settings"
+msgstr ""
+
+#: includes/services/class-privacy.php:135
+msgid "Logify WP activities"
+msgstr ""
+
+#: includes/services/class-privacy.php:56 includes/services/class-privacy.php:71
+#: includes/services/class-privacy.php:152
+msgid "Logify WP activity log"
+msgstr ""
+
+#: includes/services/class-privacy.php:228
+msgid ""
+"Logify WP activity log entries were anonymised. The record of each action is kept for audit "
+"purposes, but the user name, IP address, location and user agent have been cleared."
+msgstr ""
+
+#: includes/services/class-privacy.php:143
+msgid "Logify WP notes"
+msgstr ""
+
+#: includes/services/class-privacy.php:221
+msgid ""
+"Logify WP removed linked identifiers and detail rows while preserving event headers. Free-"
+"text references in other users' notes or unrelated content may require manual review."
+msgstr ""
+
+#: includes/services/class-admin.php:105
+msgid "Logify WP: check how visitor IP addresses are recorded"
+msgstr ""
+
+#: templates/settings-page.php:291
+msgid "Look up IP location"
+msgstr ""
+
+#: templates/settings-page.php:361
+msgid "Migrate data from WP Logify"
+msgstr ""
+
+#: action-scheduler/classes/migration/Runner.php:141
+msgid "Migrated action with ID %1$d in %2$s to ID %3$d in %4$s"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:296
+msgid "Name of the action hook that will be triggered."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_PostTypeRegistrar.php:41
+msgid "New Scheduled Action"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_wcSystemStatus.php:128
+msgid "Newest Scheduled Date"
+msgstr ""
+
+#: includes/services/class-admin.php:590
+msgid "Next page"
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_PostTypeRegistrar.php:45
+msgid "No actions found"
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_PostTypeRegistrar.php:46
+msgid "No actions found in trash"
+msgstr ""
+
+#: templates/dashboard-widget.php:82
+msgid "No activities found."
+msgstr ""
+
+#: includes/services/class-admin.php:602
+msgid "No events"
+msgstr ""
+
+#: includes/services/class-admin.php:603
+msgid "No events match these filters."
+msgstr ""
+
+#: includes/services/class-admin.php:580
+msgid "No filters applied"
+msgstr ""
+
+#: includes/services/class-admin.php:510 templates/settings-page.php:237
+msgid "No individual users have been granted access."
+msgstr ""
+
+#: templates/log-page.php:193
+msgid ""
+"No object types are selected, so no events can match. Choose at least one type to see "
+"results."
+msgstr ""
+
+#: includes/services/class-admin.php:500
+msgid "No users found."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:267
+msgid "Non-repeating"
+msgstr ""
+
+#: includes/services/class-admin.php:582 includes/services/class-notes-page.php:602
+#: templates/log-page.php:220 templates/log-page.php:235 templates/notes-page.php:107
+#: templates/notes-page.php:119 templates/notes-page.php:134
+msgid "Note"
+msgstr ""
+
+#: includes/services/class-notes-page.php:599
+msgid "Note Details"
+msgstr ""
+
+#: includes/services/class-log-page.php:235 includes/services/class-notes-page.php:149
+msgid "Note added successfully."
+msgstr ""
+
+#: includes/services/class-log-page.php:70 includes/services/class-notes-page.php:55
+msgid "Note cannot be empty."
+msgstr ""
+
+#: includes/models/class-note.php:160 includes/services/class-admin.php:594
+#: includes/services/class-log-page.php:211 includes/services/class-notes-page.php:123
+msgid "Note content cannot be empty."
+msgstr ""
+
+#: includes/services/class-log-page.php:192
+msgid "Note deleted."
+msgstr ""
+
+#: includes/services/class-log-page.php:83 includes/services/class-log-page.php:101
+#: includes/services/class-log-page.php:177 includes/services/class-notes-page.php:68
+#: includes/services/class-notes-page.php:86
+msgid "Note not found."
+msgstr ""
+
+#: templates/notes-page.php:38
+msgid "Note text, user…"
+msgstr ""
+
+#: includes/services/class-log-page.php:119 includes/services/class-notes-page.php:104
+msgid "Note updated successfully."
+msgstr ""
+
+#: includes/services/class-admin.php:302 templates/log-page.php:209
+msgid "Notes"
+msgstr ""
+
+#: includes/services/class-log-page.php:49 includes/services/class-log-page.php:164
+msgid "Notes feature is not enabled in settings."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:224
+msgid "Now!"
+msgstr ""
+
+#: includes/services/class-privacy.php:125 templates/dashboard-widget.php:66
+#: templates/log-page.php:207
+msgid "Object"
+msgstr ""
+
+#: includes/services/class-export.php:143
+msgid "Object name"
+msgstr ""
+
+#: includes/services/class-export.php:142
+msgid "Object subtype"
+msgstr ""
+
+#: includes/services/class-export.php:141 templates/log-page.php:126
+msgid "Object type"
+msgstr ""
+
+#: includes/services/class-export.php:297
+msgid "Object types"
+msgstr ""
+
+#: includes/services/class-admin.php:579
+msgid "Object types limited"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_wcSystemStatus.php:127
+msgid "Oldest Scheduled Date"
+msgstr ""
+
+#: templates/settings-page.php:295
+msgid ""
+"Only enable behind a proxy you control. Configure LOGIFY_WP_TRUSTED_PROXY_IPS in wp-"
+"config.php with its immediate IP/CIDR. The default reads X-Forwarded-For from right to left;"
+" if your proxy instead sets CF-Connecting-IP, explicitly allow that header using "
+"logify_wp_trusted_proxy_headers. Without a verified proxy, REMOTE_ADDR is recorded."
+msgstr ""
+
+#: includes/services/class-admin.php:119
+msgid "Open settings"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:299
+msgid "Optional action group."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:298
+msgid "Optional data array passed to the action hook."
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Store.php:459
+msgid "Pending"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Cancel_Command.php:76
+msgid "Please specify hook and/or group of actions to cancel."
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Cancel_Command.php:49
+msgid "Please specify hook of action to cancel."
+msgstr ""
+
+#: includes/utilities/class-post-utility.php:254
+msgid "Post"
+msgstr ""
+
+#: includes/services/class-admin.php:577 includes/services/class-export.php:295
+#: templates/log-page.php:98
+msgid "Post type"
+msgstr ""
+
+#: includes/services/class-admin.php:592
+msgid "Preparing your export…"
+msgstr ""
+
+#: includes/services/class-admin.php:589
+msgid "Previous page"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:130
+msgid "Process the action now as if it were run as part of a queue"
+msgstr ""
+
+#: templates/settings-page.php:299
+msgid ""
+"Proxy headers were detected. Confirm the actual proxy address and configure the trusted "
+"proxy list before turning this option on."
+msgstr ""
+
+#: templates/settings-page.php:148
+msgid ""
+"Record when comments are posted, edited, approved, spammed or deleted. Busy comment sections"
+" can produce a lot of log entries."
+msgstr ""
+
+#: templates/log-page.php:231 templates/notes-page.php:130
+msgid "Record why this happened, so the reason is there for whoever reads the log next."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:100
+msgid "Recurrence"
+msgstr ""
+
+#: includes/services/class-log-page.php:695 includes/services/class-notes-page.php:569
+msgid "Registered"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/ActionScheduler_WPCLI_Scheduler_command.php:30
+#, python-format
+msgid "Registered schema for %s"
+msgstr ""
+
+#: templates/settings-page.php:231
+msgid "Remove"
+msgstr ""
+
+#: includes/services/class-admin.php:504
+msgid "Remove access"
+msgstr ""
+
+#. translators: %s: user's name.
+#: templates/settings-page.php:227
+#, python-format
+msgid "Remove access for %s"
+msgstr ""
+
+#: includes/services/class-admin.php:593
+msgid "Remove filter"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Cancel_Command.php:89
+msgid "Request to cancel scheduled actions completed."
+msgstr ""
+
+#: templates/log-page.php:154 templates/notes-page.php:84
+msgid "Reset all filters"
+msgstr ""
+
+#: templates/settings-page.php:256
+msgid "Retention unit"
+msgstr ""
+
+#: includes/services/class-admin.php:576 includes/services/class-export.php:146
+#: includes/services/class-export.php:294 includes/services/class-log-page.php:662
+#: includes/services/class-notes-page.php:544 templates/log-page.php:84
+#: templates/notes-page.php:70
+msgid "Role"
+msgstr ""
+
+#: templates/settings-page.php:119
+msgid "Roles to track"
+msgstr ""
+
+#: templates/settings-page.php:161
+msgid "Roles with access"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:129
+msgid "Run"
+msgstr ""
+
+#: templates/settings-page.php:348
+msgid "Save changes"
+msgstr ""
+
+#: templates/log-page.php:245 templates/notes-page.php:144
+msgid "Save note"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:301
+msgid "Scheduled"
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_PostTypeRegistrar.php:35
+msgid "Scheduled Action"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:294
+msgid "Scheduled Action Columns"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:89
+msgid "Scheduled Actions"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:101
+msgid "Scheduled Date"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Cancel_Command.php:98
+msgid "Scheduled action cancelled."
+msgstr ""
+
+#: action-scheduler/classes/actions/ActionScheduler_Action.php:81
+msgid "Scheduled action for %1$s will not be executed as no callbacks are registered."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_PostTypeRegistrar.php:24
+msgid "Scheduled actions are hooks triggered on a certain date and time."
+msgstr ""
+
+#: includes/services/class-admin.php:572 templates/log-page.php:35 templates/notes-page.php:35
+msgid "Search"
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_PostTypeRegistrar.php:44
+msgid "Search Scheduled Actions"
+msgstr ""
+
+#: templates/log-page.php:29 templates/notes-page.php:29
+msgid "Search and filters"
+msgstr ""
+
+#: templates/settings-page.php:194
+msgid "Search for a user to grant access to"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:662
+msgid "Search hook, args and claim ID"
+msgstr ""
+
+#: templates/settings-page.php:203
+msgid "Search results"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Abstract_ListTable.php:669
+#, python-format
+msgid "Search results for \"%s\""
+msgstr ""
+
+#: templates/settings-page.php:196
+msgid "Search users…"
+msgstr ""
+
+#: includes/services/class-admin.php:499
+msgid "Searching…"
+msgstr ""
+
+#: includes/services/class-log-page.php:144
+msgid "Security check failed."
+msgstr ""
+
+#: includes/services/class-admin.php:134 includes/services/class-admin.php:641
+#: includes/services/class-data-migration.php:39 includes/services/class-export.php:85
+#: includes/services/class-plugin-settings.php:135
+msgid "Security check failed. Please try again."
+msgstr ""
+
+#: templates/settings-page.php:134
+msgid "Select all"
+msgstr ""
+
+#: templates/log-page.php:194
+msgid "Select all object types"
+msgstr ""
+
+#: templates/settings-page.php:136
+msgid "Select none"
+msgstr ""
+
+#: templates/settings-page.php:293
+msgid ""
+"Sends the logged IP address to ip-api.com to record a city, region and country against each "
+"event. Each address is looked up at most once a week. Turn this off to stop all outbound "
+"requests; the Location column will be left empty."
+msgstr ""
+
+#: includes/services/class-notes-page.php:698
+msgid "Setting"
+msgstr ""
+
+#: includes/services/class-admin.php:177 includes/services/class-main.php:247
+msgid "Settings"
+msgstr ""
+
+#: templates/settings-page.php:21
+msgid "Settings saved."
+msgstr ""
+
+#: templates/settings-page.php:337
+msgid "Show in the admin bar"
+msgstr ""
+
+#: includes/services/class-privacy.php:219
+msgid "Some Logify WP records could not be anonymised. Review the database errors and retry."
+msgstr ""
+
+#: includes/services/class-export.php:89 includes/services/class-log-page.php:247
+#: includes/services/class-notes-page.php:172 includes/services/class-plugin-settings.php:292
+msgid "Sorry, you are not allowed to access this page."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:273
+msgid "Source"
+msgstr ""
+
+#: includes/services/class-admin.php:295 templates/log-page.php:205
+msgid "Source IP"
+msgstr ""
+
+#: action-scheduler/classes/migration/Config.php:100
+msgid "Source logger must be configured before running a migration"
+msgstr ""
+
+#: action-scheduler/classes/migration/Config.php:77
+msgid "Source store must be configured before running a migration"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/ActionScheduler_WPCLI_QueueRunner.php:140
+#, python-format
+msgid "Started processing action %s"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:97
+msgid "Status"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:423
+#, python-format
+msgid "Successfully canceled action: %s"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:419
+#, python-format
+msgid "Successfully executed action: %s"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:427
+#, python-format
+msgid "Successfully processed change for action: %s"
+msgstr ""
+
+#: includes/services/class-admin.php:578 includes/services/class-export.php:296
+#: templates/log-page.php:112
+msgid "Taxonomy"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/ProgressBar.php:67
+#, python-format
+msgid "The %s class can only be run within WP CLI."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:300
+msgid "The action's schedule frequency."
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/ActionScheduler_WPCLI_QueueRunner.php:117
+msgid "The claim has been lost. Aborting current batch."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:301
+msgid "The date/time the action is/was scheduled to run."
+msgstr ""
+
+#: includes/services/class-export.php:128
+msgid "The export could not be started."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore.php:717
+#, python-format
+msgid "The group \"%s\" does not exist."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:397
+#, python-format
+msgid "The next queue will begin processing in approximately %d seconds."
+msgstr ""
+
+#: includes/services/class-admin.php:501
+msgid "The search could not be completed. Please try again."
+msgstr ""
+
+#: includes/services/class-notes-page.php:128
+msgid "The selected activity no longer exists."
+msgstr ""
+
+#: includes/trackers/class-security-tracker.php:256
+msgid "The update did not complete."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:509
+#, python-format
+msgid ""
+"The value type for the JSON partial matching is not supported. Must be either integer, "
+"boolean, double or string. %s type provided."
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/ActionScheduler_WPCLI_QueueRunner.php:69
+msgid "There are too many concurrent batches, but the run is forced to continue."
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/ActionScheduler_WPCLI_QueueRunner.php:71
+msgid "There are too many concurrent batches."
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:224
+msgid "There was a failure fetching this action"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:222
+#, python-format
+msgid "There was a failure fetching this action: %s"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:238
+#, python-format
+msgid "There was a failure scheduling the next instance of this action: %s"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Cancel_Command.php:113
+msgid "There was an error cancelling the %1$s: %2$s"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Generate_Command.php:115
+#, python-format
+msgid "There was an error creating the scheduled action: %s"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/ActionScheduler_WPCLI_Clean_Command.php:103
+#, python-format
+msgid "There was an error deleting an action: %s"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/ActionScheduler_WPCLI_Scheduler_command.php:182
+#, python-format
+msgid "There was an error running the action scheduler: %s"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Abstract_QueueRunner.php:170
+msgid "This action appears to be consistently failing. A new instance will not be scheduled."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_WPCommentCleaner.php:121
+#, python-format
+msgid "This data will be deleted in %s."
+msgstr ""
+
+#: templates/settings-page.php:309
+msgid ""
+"This request arrived with proxy headers, which suggests your site is behind a proxy or CDN. "
+"You probably want this on."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_wcSystemStatus.php:113
+msgid "This section shows details of Action Scheduler."
+msgstr ""
+
+#: templates/log-page.php:40 templates/notes-page.php:40
+msgid "Three characters or more."
+msgstr ""
+
+#: includes/services/class-export.php:291 templates/log-page.php:51 templates/notes-page.php:51
+msgid "To"
+msgstr ""
+
+#: templates/log-page.php:50 templates/notes-page.php:50
+msgid "To date"
+msgstr ""
+
+#: templates/settings-page.php:146
+msgid "Track comments"
+msgstr ""
+
+#: templates/settings-page.php:303
+msgid "Trust proxy headers"
+msgstr ""
+
+#: templates/settings-page.php:305
+msgid ""
+"Turn this on only if your site sits behind Cloudflare, a load balancer or another reverse "
+"proxy. It reads the visitor IP from headers such as CF-Connecting-IP and X-Forwarded-For, "
+"which is the correct source on those sites. Without a proxy, those headers come from the "
+"visitor and can be forged, so leaving this off keeps the logged IP trustworthy."
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Cancel_Command.php:59
+msgid "Unable to cancel scheduled action: check the logs."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore.php:696
+msgid "Unable to claim actions. Database error."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:1023
+#, python-format
+msgid "Unable to claim actions. Database error: %s."
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Create_Command.php:108
+msgid "Unable to create a scheduled action."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore.php:878
+#, python-format
+msgid "Unable to mark failure on action %s. Database error."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:1135
+#, python-format
+msgid "Unable to release actions from claim id %d."
+msgstr ""
+
+#: action-scheduler/classes/migration/ActionMigrator.php:109
+#, python-format
+msgid "Unable to remove source migrated action %s"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Get_Command.php:23
+#, python-format
+msgid "Unable to retrieve action %d."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore.php:101
+msgid "Unable to save action."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore.php:824
+#, python-format
+msgid "Unable to unlock claim %s. Database error."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore.php:852
+#, python-format
+msgid "Unable to unlock claim on action %s. Database error."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:1222
+msgid "Unable to update the status of action %1$d to %2$s."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:701
+#, python-format
+msgid ""
+"Unidentified action %s: we were unable to cancel this action. It may may have been deleted "
+"by another process."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:804
+#, python-format
+msgid ""
+"Unidentified action %s: we were unable to delete this action. It may may have been deleted "
+"by another process."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:842
+#, python-format
+msgid ""
+"Unidentified action %s: we were unable to determine the date of this action. It may may have"
+" been deleted by another process."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:1260
+#, python-format
+msgid ""
+"Unidentified action %s: we were unable to mark this action as having completed. It may may "
+"have been deleted by another process."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:1191
+#, python-format
+msgid ""
+"Unidentified action %s: we were unable to mark this action as having failed. It may may have"
+" been deleted by another process."
+msgstr ""
+
+#: includes/services/class-log-page.php:668 includes/services/class-log-page.php:672
+#: includes/services/class-log-page.php:689 includes/services/class-log-page.php:699
+#: includes/services/class-log-page.php:704 includes/services/class-notes-page.php:550
+#: includes/services/class-notes-page.php:563 includes/services/class-notes-page.php:573
+#: includes/services/class-notes-page.php:578 includes/utilities/class-user-utility.php:414
+msgid "Unknown"
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:531
+msgid "Unknown partial args matching value."
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_DBStore.php:1297
+msgid "Unknown status found for action."
+msgstr ""
+
+#: includes/services/class-admin.php:291 includes/services/class-admin.php:575
+#: includes/services/class-export.php:144 includes/services/class-log-page.php:658
+#: includes/services/class-notes-page.php:540 templates/dashboard-widget.php:64
+#: templates/log-page.php:70 templates/log-page.php:204 templates/notes-page.php:56
+#: templates/notes-page.php:106
+msgid "User"
+msgstr ""
+
+#: includes/services/class-log-page.php:652 includes/services/class-notes-page.php:534
+msgid "User Details"
+msgstr ""
+
+#: includes/services/class-export.php:145 includes/services/class-export.php:293
+msgid "User ID"
+msgstr ""
+
+#: includes/models/class-note.php:157
+msgid "User ID is required."
+msgstr ""
+
+#: includes/services/class-export.php:149 includes/services/class-log-page.php:677
+#: includes/services/class-privacy.php:145
+msgid "User agent"
+msgstr ""
+
+#: includes/services/class-privacy.php:129
+msgid "User name"
+msgstr ""
+
+#: includes/services/class-log-page.php:272
+msgid "User not logged in."
+msgstr ""
+
+#: includes/services/class-privacy.php:133
+msgid "User role"
+msgstr ""
+
+#: templates/log-page.php:38
+msgid "User, event, object…"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_wcSystemStatus.php:116
+msgid "Version:"
+msgstr ""
+
+#: action-scheduler/classes/data-stores/ActionScheduler_wpPostStore_PostTypeRegistrar.php:42
+msgid "View Action"
+msgstr ""
+
+#: includes/services/class-admin.php:163 includes/services/class-admin.php:208
+#: includes/services/class-admin.php:217
+msgid "View Log"
+msgstr ""
+
+#: includes/services/class-admin.php:168
+msgid "View Notes"
+msgstr ""
+
+#: includes/services/class-main.php:251
+msgid "View log"
+msgstr ""
+
+#: includes/services/class-log-page.php:618
+msgid "View/Edit Note"
+msgstr ""
+
+#: templates/settings-page.php:286
+msgid ""
+"Visitor IPs are recorded with events. Logify WP does not look up their location or "
+"automatically send them to a geolocation service."
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:278
+msgid "WP CLI"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_AdminView.php:282
+msgid "WP CLI commands are available: execute %1$s for a list of available commands."
+msgstr ""
+
+#. translators: %s: the raw user agent string.
+#: includes/utilities/class-user-utility.php:429
+#, python-format
+msgid "WP-CLI command line (%s)"
+msgstr ""
+
+#: templates/settings-page.php:114
+msgid "What to track"
+msgstr ""
+
+#: templates/settings-page.php:156
+msgid "Who can see the log"
+msgstr ""
+
+#. translators: %s: the raw user agent string.
+#: includes/utilities/class-user-utility.php:421
+#, python-format
+msgid "WordPress background request (%s)"
+msgstr ""
+
+#: includes/services/class-log-page.php:378 includes/services/class-notes-page.php:207
+msgid "You are not allowed to access this data."
+msgstr ""
+
+#: includes/services/class-plugin-settings.php:323
+msgid "You are not allowed to do this."
+msgstr ""
+
+#: includes/services/class-admin.php:138 includes/services/class-admin.php:646
+#: includes/services/class-data-migration.php:44
+msgid "You are not allowed to perform this action."
+msgstr ""
+
+#: includes/services/class-log-page.php:181
+msgid "You are not authorized to delete this note."
+msgstr ""
+
+#: includes/services/class-log-page.php:97 includes/services/class-notes-page.php:82
+msgid "You are not authorized to edit this note."
+msgstr ""
+
+#: includes/services/class-log-page.php:61 includes/services/class-log-page.php:146
+#: includes/services/class-log-page.php:160 includes/services/class-log-page.php:206
+#: includes/services/class-notes-page.php:42 includes/services/class-notes-page.php:118
+msgid "You do not have permission to do this."
+msgstr ""
+
+#: includes/services/class-log-page.php:282
+msgid "You do not have permission to view activity logs."
+msgstr ""
+
+#: includes/services/class-privacy.php:206
+msgid "[Note text erased on privacy request]"
+msgstr ""
+
+#. translators: _START_, _END_ and _TOTAL_ are replaced with row numbers; keep them as they are.
+#: includes/services/class-admin.php:599
+msgid "_START_–_END_ of _TOTAL_"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:109
+msgid "action canceled"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:140
+msgid "action complete"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:138
+#, python-format
+msgid "action complete via %s"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:100
+msgid "action created"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:155
+msgid "action failed via %1$s: %2$s"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:158
+#, python-format
+msgid "action failed: %s"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:207
+msgid "action ignored"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:205
+#, python-format
+msgid "action ignored via %s"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:171
+#, python-format
+msgid ""
+"action marked as failed after %s seconds. Unknown error occurred. Check server, PHP and "
+"database error logs to diagnose cause."
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:193
+msgid "action reset"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:123
+msgid "action started"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:121
+#, python-format
+msgid "action started via %s"
+msgstr ""
+
+#: includes/services/class-privacy.php:220 includes/services/class-privacy.php:265
+msgid "anonymised"
+msgstr ""
+
+#: action-scheduler/classes/ActionScheduler_ListTable.php:469
+msgid "async"
+msgstr ""
+
+#: templates/settings-page.php:64
+msgid "days"
+msgstr ""
+
+#: templates/settings-page.php:66
+msgid "months"
+msgstr ""
+
+#. translators: %d: total number of pages.
+#: includes/services/class-admin.php:587
+#, python-format
+msgid "of %d"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Cancel_Command.php:114
+msgid "scheduled action"
+msgstr ""
+
+#: action-scheduler/classes/WP_CLI/Action/Cancel_Command.php:114
+msgid "scheduled actions"
+msgstr ""
+
+#: templates/log-page.php:49 templates/notes-page.php:49
+msgid "to"
+msgstr ""
+
+#: action-scheduler/classes/abstracts/ActionScheduler_Logger.php:183
+msgid "unexpected shutdown: PHP Fatal error %1$s in %2$s on line %3$s"
+msgstr ""
+
+#: templates/settings-page.php:65
+msgid "weeks"
+msgstr ""
+
+
+#: includes/services/class-privacy.php
+msgid "Some Logify WP records could not be anonymised due to a database error. Review the error and run a new erasure request after fixing it."
+msgstr ""
+
+#: templates/settings-page.php
+msgid "Current request IP diagnostics"
+msgstr ""
+
+#: templates/settings-page.php
+msgid "These values come from the current admin page request. Forwarded headers are informational until the connecting proxy is verified."
+msgstr ""
+
+#: templates/settings-page.php
+msgid "Connection trust"
+msgstr ""
+
+#: templates/settings-page.php
+msgid "Verified Cloudflare connection"
+msgstr ""
+
+#: templates/settings-page.php
+msgid "Verified against configured trusted proxies"
+msgstr ""
+
+#: templates/settings-page.php
+msgid "Unverified proxy headers are ignored"
+msgstr ""
+
+#: templates/settings-page.php
+msgid "The PHP request appears to originate from the server itself. Your Nginx/load-balancer configuration must restore the authenticated visitor IP before Logify can record it securely."
+msgstr ""
+
+#: templates/settings-page.php
+msgid "Do not trust CF-Connecting-IP or X-Forwarded-For merely because they contain your public IP. Your proxy must authenticate and overwrite those headers at the network boundary."
+msgstr ""
+
+msgid "This IP was reported by an unverified proxy and may be spoofed."
+msgstr ""
+
+msgid "reported, unverified"
+msgstr ""
+
+msgid "Connection IP (audited)"
+msgstr ""
+
+msgid "IP source"
+msgstr ""
+
+msgid "For unknown hosting proxies, Logify also captures a reported visitor IP when available, clearly marked as unverified in the activity log. The connection IP remains separately recorded for audit purposes."
+msgstr ""
+
+msgid "PHP sees the hosting server as the connection source. Logify can display a separately reported IP where available, but only a verified proxy can establish that the reported address is authentic."
+msgstr ""
+
+msgid "Connection or verified IP"
+msgstr ""
+
+msgid "Reported visitor IP (unverified)"
+msgstr ""
+
+msgid "IP attribution source"
+msgstr ""
+
+msgid "Unverified proxy headers are not trusted; a reported IP may be shown separately"
+msgstr ""

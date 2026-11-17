@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Class Logify_WP\Core_Tracker
  *
@@ -19,8 +24,8 @@ class Core_Tracker {
 	 */
 	public static function init() {
 		// Core update.
-		add_action( '_core_updated_successfully', [__NAMESPACE__.'\Async_Tracker','async_core_updated_successfully'], 10, 1 );
-		add_action( 'middle_core_updated_successfully', array( __CLASS__, 'on_core_updated_successfully' ), 10, 1 );
+		add_action( '_core_updated_successfully', Async_Tracker::safe_callback( 'async_core_updated_successfully', false ), 10, 1 );
+		add_action( 'middle_core_updated_successfully', array( __CLASS__, 'on_core_updated_successfully' ), 10, 3 );
 	}
 
 	/**
@@ -28,7 +33,7 @@ class Core_Tracker {
 	 *
 	 * @param string $wp_version The current WordPress version.
 	 */
-	public static function on_core_updated_successfully( string $wp_version, int $acting_user_id = 0 ) {
+	public static function on_core_updated_successfully( string $wp_version, int $acting_user_id = 0, ?string $client_ip = null ) {
 		// Get the old version.
 		$old_version = get_bloginfo( 'version' );
 
@@ -55,6 +60,6 @@ class Core_Tracker {
 		$core_ref = new Object_Reference( 'core', $wp_version );
 		// all_users:true because a core update must be recorded whether it was started by
 		// an administrator or by WordPress's own automatic updater, which runs with no user.
-		Logger::log_event( $event_type, $core_ref, null, $props, $acting_user_id ?: null, true );
+		Logger::log_event( $event_type, $core_ref, null, $props, $acting_user_id ?: null, true, $client_ip );
 	}
 }

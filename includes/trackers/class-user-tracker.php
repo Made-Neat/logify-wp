@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_Error;
 use WP_User;
 
@@ -47,37 +52,39 @@ class User_Tracker
 	{
 
 		//User Login
-		add_action('wp_login', [__NAMESPACE__ . '\Async_Tracker', 'async_wp_login'], 10, 2);
+		add_action('wp_login', Async_Tracker::safe_callback( 'async_wp_login', false ), 10, 2);
 		add_action('middle_wp_login', array(__CLASS__, 'on_wp_login'), 10, 3);
 
-		add_action('wp_login_failed', [__NAMESPACE__ . '\Async_Tracker', 'async_wp_login_failed'], 10, 2);
+		add_action('wp_login_failed', Async_Tracker::safe_callback( 'async_wp_login_failed', false ), 10, 2);
 		add_action('middle_wp_login_failed', array(__CLASS__, 'on_wp_login_failed'), 10, 3);
 
 		// User logout.
-		add_action('wp_logout', [__NAMESPACE__ . '\Async_Tracker', 'async_wp_logout'], 10, 1);
+		add_action('wp_logout', Async_Tracker::safe_callback( 'async_wp_logout', false ), 10, 1);
 		add_action('middle_wp_logout', array(__CLASS__, 'on_wp_logout'), 10, 2);
 
 		// User activity.
-		//add_action('wp_loaded', [__NAMESPACE__ . '\Async_Tracker', 'async_wp_loaded']);
+		//add_action('wp_loaded', Async_Tracker::safe_callback( 'async_wp_loaded', false ));
 		//add_action('middle_wp_loaded', array(__CLASS__, 'on_wp_loaded'),10,1);
 
 		// New user registration.
-		add_action('user_register', [__NAMESPACE__ . '\Async_Tracker', 'async_user_register'], 10, 2);
-		add_action('middle_user_register', array(__CLASS__, 'on_user_register'), 10, 3);
+		add_action('user_register', Async_Tracker::safe_callback( 'async_user_register', false ), 10, 2);
+		add_action('middle_user_register', array(__CLASS__, 'on_user_register'), 10, 4);
 
 		// User deletion.
-		add_action('delete_user', [__NAMESPACE__ . '\Async_Tracker', 'async_delete_user'], 10, 3);
-		add_action('middle_delete_user', array(__CLASS__, 'on_delete_user'), 10, 4);
+		add_action('delete_user', Async_Tracker::safe_callback( 'async_delete_user', false ), 10, 3);
+		add_action('middle_delete_user', array(__CLASS__, 'on_delete_user'), 10, 5);
 
 		// User update.
-		add_action('profile_update', [__NAMESPACE__ . '\Async_Tracker', 'async_profile_update'], 10, 2);
+		add_action('profile_update', Async_Tracker::safe_callback( 'async_profile_update', false ), 10, 2);
 		add_action('middle_profile_update', array(__CLASS__, 'on_profile_update'), 10, 5);
 
-		add_action('update_user_meta', [__NAMESPACE__ . '\Async_Tracker', 'async_update_user_meta'], 10, 4);
+		add_action('update_user_meta', Async_Tracker::safe_callback( 'async_update_user_meta', false ), 10, 4);
 		add_action('middle_update_user_meta', array(__CLASS__, 'on_update_user_meta'), 10, 6);
 
 		// Shutdown hook.
-		add_action('shutdown', [__NAMESPACE__ . '\Async_Tracker', 'async_shutdown_user'], 10, 0);
+		// Flush the event within the SAME PHP request as the Action Scheduler handler.
+		add_action('shutdown', array(__CLASS__, 'on_shutdown'), 9, 0);
+		add_action('action_scheduler_after_execute', array(__CLASS__, 'on_shutdown'), 9, 0);
 		add_action('middle_shutdown_user', array(__CLASS__, 'on_shutdown'), 10, 0);
 	}
 
@@ -121,14 +128,7 @@ class User_Tracker
 	public static function on_wp_login_failed($username, $error_s, ?string $client_ip = null)
 	{
 		// Parse error payload safely.
-		$error = null;
-		if (is_string($error_s) && Serialization::try_unserialize($error_s, $error)) {
-			// ok
-		} elseif (is_object($error_s)) {
-			$error = $error_s;
-		} else {
-			Debug::warning('logify-debug: on_wp_login_failed - unexpected error payload type=' . gettype($error_s));
-		}
+		$error = Serialization::to_object( $error_s, 'on_wp_login_failed', false );
 		// Create the event.
 		// This event does not require an object, since the acting user *is* the object, but it does
 		// require an object type ('user') in order to be grouped properly.
@@ -208,16 +208,7 @@ class User_Tracker
 		global $wpdb;
 
 		// Parse user payload safely.
-		$user = null;
-		if (is_string($serialize_user) && Serialization::try_unserialize($serialize_user, $user)) {
-			// ok
-		} elseif (is_object($serialize_user)) {
-			$user = $serialize_user;
-		} elseif (is_array($serialize_user)) {
-			$user = (object) $serialize_user;
-		} else {
-			Debug::warning('logify-debug: on_delete_user - unable to parse $serialize_user; type=' . gettype($serialize_user));
-		}
+		$user = Serialization::to_object( $serialize_user, 'on_delete_user' );
 		// Get the user's properties.
 		$props = User_Utility::get_properties($user);
 
@@ -279,6 +270,9 @@ class User_Tracker
         // Compare values and make note of any changes.
 		$userdata = is_array($userdata) ? $userdata : array();
 		foreach ($user->data as $key => $value) {
+			if ( Property_Repository::is_sensitive_key( (string) $key ) ) {
+				continue;
+			}
             // Process values.
             $val = Types::process_database_value($key, $value);
 			$new_raw = $userdata[$key] ?? null;
@@ -315,19 +309,23 @@ class User_Tracker
         global $wpdb;
 
         // Ignore changes to session tokens.
-        if ($meta_key === 'session_tokens') {
+        if ( in_array( $meta_key, array( 'session_tokens', 'wp_user_level' ), true ) || str_ends_with( $meta_key, 'capabilities' ) ) {
             return;
         }
 
-        // Get the current value.
-        $current_value = get_user_meta($user_id, $meta_key, true);
+        $sensitive = Property_Repository::is_sensitive_key( $meta_key );
+        if ( $sensitive ) {
+            // Keep the existence of the change but never read its secret value into a log.
+            $val = Sensitive_Data::REDACTED;
+            $new_val = Sensitive_Data::REDACTED;
+        } else {
+            $current_value = get_user_meta($user_id, $meta_key, true);
+            $val = Types::process_database_value($meta_key, $current_value);
+            $new_val = Types::process_database_value($meta_key, $meta_value);
+        }
 
-        // Process values.
-        $val = Types::process_database_value($meta_key, $current_value);
-        $new_val = Types::process_database_value($meta_key, $meta_value);
-
-        // If the value has changed, add the before and after values to the properties array.
-        if (!Types::are_equal($val, $new_val)) {
+        // Secret-field updates still deserve a visible redacted property.
+        if ( $sensitive || !Types::are_equal($val, $new_val) ) {
 
             // Create the event if it doesn't already exist.
 			if (!self::$profile_update_event) {
@@ -433,7 +431,11 @@ class User_Tracker
 	{
 		// Save the profile update event if it exists.
 		if (self::$profile_update_event) {
-			self::$profile_update_event->save();
+			$event = self::$profile_update_event;
+			self::$profile_update_event = null;
+			if ( $event->is_new() ) {
+				$event->save();
+			}
 		}
 	}
 }

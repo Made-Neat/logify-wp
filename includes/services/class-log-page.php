@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use DateTime;
 use DateTimeZone;
 
@@ -24,6 +29,8 @@ class Log_Page {
 		add_action( 'wp_ajax_logify_wp_fetch_logs', array( __CLASS__, 'fetch_logs' ) );
 		add_action( 'wp_ajax_logify_update_note', array( __CLASS__, 'logify_update_note' ) );
 		add_action( 'wp_ajax_logify_add_note', array( __CLASS__, 'logify_add_note' ) );
+		add_action( 'wp_ajax_logify_delete_note', array( __CLASS__, 'logify_delete_note' ) );
+		add_action( 'wp_ajax_logify_wp_save_filters_state', array( __CLASS__, 'save_filters_state' ) );
 		add_action( 'wp_ajax_logify_wp_save_column_preference', array( __CLASS__, 'save_column_preference' ) );
 	}
 
@@ -39,7 +46,7 @@ class Log_Page {
 	 */
 	private static function ensure_notes_enabled(): void {
 		if ( ! Plugin_Settings::get_enable_notes() ) {
-			wp_send_json_error( array( 'message' => 'Notes feature is not enabled in settings.' ), 403 );
+			wp_send_json_error( array( 'message' => __( 'Notes feature is not enabled in settings.', 'logify-wp' ) ), 403 );
 		}
 	}
 
@@ -50,49 +57,148 @@ class Log_Page {
 		// Notes are a global setting, and read access to the log is not permission to
 		// write notes. Both checks were missing here; the Notes_Page twins had them.
 		self::ensure_notes_enabled();
-		if ( ! Access_Control::can_access_log_page() ) {
-			wp_send_json_error( array( 'message' => 'You do not have permission to do this.' ), 403 );
+		if ( ! Access_Control::can_manage_notes() ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to do this.', 'logify-wp' ) ), 403 );
 		}
 		$note_id = isset($_POST['note_id']) ? intval($_POST['note_id']) : 0;
 		$event_id = isset($_POST['event_id']) ? intval($_POST['event_id']) : 0;
 
 		if ( !$event_id && !$note_id ) {
-			wp_send_json_error(['message' => 'Invalid note data.']);
+			wp_send_json_error( array( 'message' => __( 'Invalid note data.', 'logify-wp' ) ) );
 		}
 		if(empty($_POST['note_content'])){
-			wp_send_json_error(['message' => 'Note can\'t be empty.']);
+			wp_send_json_error( array( 'message' => __( 'Note cannot be empty.', 'logify-wp' ) ) );
 		}
 	
 		// Fetch the note to validate ownership
 		$note_repo = new \Logify_WP\Note_Repository();
 
-		if ( $event_id ){
-			$existing_note = $note_repo->load_by_event_id($event_id);
-		}else{
-			$existing_note = $note_repo->load($note_id);
-		}
+		// A single event can have several notes: only the explicit note ID is unique.
+		$existing_note = $note_id ? $note_repo->load( $note_id ) : null;
 
 		if (!$existing_note) {
-			wp_send_json_error(['message' => 'Note not found.']);
+			wp_send_json_error( array( 'message' => __( 'Note not found.', 'logify-wp' ) ) );
 		}
 	
+
+		// load_by_event_id() returns a raw database row (string columns, note_id) while load()
+		// returns a Note object (int properties, id). Normalise before comparing or saving:
+		// the previous strict comparison of a string user_id against an int always failed, so
+		// editing a note found by event ID was always refused, and a note_id of 0 reached the
+		// repository and threw an uncaught exception.
+		$existing_user_id = (int) ( $existing_note->user_id ?? 0 );
+		$existing_note_id = (int) ( $existing_note->note_id ?? $existing_note->id ?? 0 );
+
 		// Check if the current user is the owner of the note
-		if ($existing_note->user_id !== get_current_user_id()) {
-			wp_send_json_error(['message' => 'You are not authorized to edit this note.']);
+		if ( $existing_user_id !== get_current_user_id() ) {
+			wp_send_json_error( array( 'message' => __( 'You are not authorized to edit this note.', 'logify-wp' ) ), 403 );
 		}
 
-		$success = $note_repo->save((object) [
-			'id'   => $note_id,
-			'note' => isset($_POST['note_content']) 
-			? sanitize_textarea_field( wp_unslash( $_POST['note_content'] ) )
-			: '',
-		]);
-	
-		if ($success) {
-			wp_send_json_success(['message' => 'Note updated successfully.']);
-		} else {
-			wp_send_json_error(['message' => 'Failed to update note.']);
+		if ( ! $existing_note_id ) {
+			wp_send_json_error( array( 'message' => __( 'Note not found.', 'logify-wp' ) ) );
 		}
+
+		try {
+			$success = $note_repo->save(
+				(object) array(
+					'id'   => $existing_note_id,
+					'note' => isset( $_POST['note_content'] )
+						? wp_kses_post( wp_unslash( $_POST['note_content'] ) )
+						: '',
+				)
+			);
+		} catch ( \Throwable $e ) {
+			Debug::error( 'Logify WP: failed to update note', $e->getMessage() );
+			wp_send_json_error( array( 'message' => __( 'Failed to update note.', 'logify-wp' ) ) );
+		}
+
+		if ($success) {
+			wp_send_json_success( array( 'message' => __( 'Note updated successfully.', 'logify-wp' ) ) );
+		} else {
+			wp_send_json_error( array( 'message' => __( 'Failed to update note.', 'logify-wp' ) ) );
+		}
+	}
+
+	/**
+	 * Delete a note.
+	 *
+	 * Notes could be added and edited but never removed, so a note written in error had to be
+	 * blanked rather than deleted. Only the note's author can delete it, matching the rule
+	 * already applied to editing.
+	 *
+	 * @return void
+	 */
+	/**
+	 * Remember whether the filter panel was left open.
+	 *
+	 * Stored per user, so one person collapsing the filters does not change the screen for
+	 * everybody else.
+	 *
+	 * @return void
+	 */
+	/** Check the existing page-specific nonce used by both log and Notes screens. */
+	private static function verify_log_or_notes_nonce(): void {
+		$nonce = isset( $_POST['security'] ) ? sanitize_text_field( wp_unslash( $_POST['security'] ) ) : '';
+		if ( ! wp_verify_nonce( $nonce, 'logify-wp-log-page' )
+			&& ! wp_verify_nonce( $nonce, 'logify-wp-notes-page' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Security check failed.', 'logify-wp' ) ), 403 );
+		}
+	}
+
+	public static function save_filters_state() {
+		self::verify_log_or_notes_nonce();
+
+		if ( ! Access_Control::can_access_log_page() ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to do this.', 'logify-wp' ) ), 403 );
+		}
+
+		$open = ! empty( $_POST['open'] );
+
+		update_user_meta( get_current_user_id(), 'logify_wp_filters_open', $open ? 'open' : 'closed' );
+
+		wp_send_json_success();
+	}
+
+	public static function logify_delete_note() {
+		self::verify_log_or_notes_nonce();
+
+		if ( ! Access_Control::can_manage_notes() ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to do this.', 'logify-wp' ) ), 403 );
+		}
+
+		if ( ! Plugin_Settings::get_enable_notes() ) {
+			wp_send_json_error( array( 'message' => __( 'Notes feature is not enabled in settings.', 'logify-wp' ) ), 403 );
+		}
+
+		$note_id = isset( $_POST['note_id'] ) ? absint( wp_unslash( $_POST['note_id'] ) ) : 0;
+
+		if ( ! $note_id ) {
+			wp_send_json_error( array( 'message' => __( 'Invalid note.', 'logify-wp' ) ) );
+		}
+
+		$note_repo     = new Note_Repository();
+		$existing_note = $note_repo->load( $note_id );
+
+		if ( ! $existing_note ) {
+			wp_send_json_error( array( 'message' => __( 'Note not found.', 'logify-wp' ) ) );
+		}
+
+		if ( (int) ( $existing_note->user_id ?? 0 ) !== get_current_user_id() ) {
+			wp_send_json_error( array( 'message' => __( 'You are not authorized to delete this note.', 'logify-wp' ) ), 403 );
+		}
+
+		try {
+			$deleted = $note_repo->delete( $note_id );
+		} catch ( \Throwable $e ) {
+			Debug::error( 'Logify WP: failed to delete note', $e->getMessage() );
+			wp_send_json_error( array( 'message' => __( 'Failed to delete note.', 'logify-wp' ) ) );
+		}
+
+		if ( $deleted ) {
+			wp_send_json_success( array( 'message' => __( 'Note deleted.', 'logify-wp' ) ) );
+		}
+
+		wp_send_json_error( array( 'message' => __( 'Failed to delete note.', 'logify-wp' ) ) );
 	}
 
 	public static function logify_add_note() {
@@ -102,39 +208,43 @@ class Log_Page {
 		// Notes are a global setting, and read access to the log is not permission to
 		// write notes. Both checks were missing here; the Notes_Page twins had them.
 		self::ensure_notes_enabled();
-		if ( ! Access_Control::can_access_log_page() ) {
-			wp_send_json_error( array( 'message' => 'You do not have permission to do this.' ), 403 );
+		if ( ! Access_Control::can_manage_notes() ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to do this.', 'logify-wp' ) ), 403 );
 		}
 	
 		// Validate input
 		if (empty($_POST['note_content'])) {
-			wp_send_json_error(['message' => 'Note content cannot be empty.']);
+			wp_send_json_error( array( 'message' => __( 'Note content cannot be empty.', 'logify-wp' ) ) );
 		}
 
 		$event_id = isset($_POST['event_id']) 
-		? intval( sanitize_text_field( wp_unslash( $_POST['event_id'] ) ) ) 
+		? absint( wp_unslash( $_POST['event_id'] ) ) 
 		: 0;
 		
+		if ( $event_id > 0 && ! Event_Repository::load( $event_id ) ) {
+			wp_send_json_error( array( 'message' => __( 'The selected activity no longer exists.', 'logify-wp' ) ), 404 );
+		}
+
 		// Create note repository instance
 		$note_repo = new \Logify_WP\Note_Repository();
 		$user = wp_get_current_user();
 		// Save new note
 		$success = $note_repo->create( [
 			'note'        => isset($_POST['note_content']) 
-			? sanitize_textarea_field( wp_unslash( $_POST['note_content'] ) )
+			? wp_kses_post( wp_unslash( $_POST['note_content'] ) )
 			: '',
 			'user_id'     => get_current_user_id(), // Assuming user ID is required
 			'user_role' => !empty($user->roles) ? implode(', ', $user->roles) : 'No role assigned', // Get user roles
     		'user_name'  => $user->user_login, // Get username
 			'activity_id' => ($event_id) ? $event_id : 0,
 			'created_at'  => current_time('mysql'), // Assuming created_at is required
-			'ip_address' => isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '',
+			'ip_address' => User_Utility::get_ip() ?: '',
 		]);
 	
 		if ($success) {
-			wp_send_json_success(['message' => 'Note added successfully.']);
+			wp_send_json_success( array( 'message' => __( 'Note added successfully.', 'logify-wp' ) ) );
 		} else {
-			wp_send_json_error(['message' => 'Failed to add note.']);
+			wp_send_json_error( array( 'message' => __( 'Failed to add note.', 'logify-wp' ) ) );
 		}
 	}	
 
@@ -144,7 +254,7 @@ class Log_Page {
 	public static function display_log_page() {
 		if ( ! Access_Control::can_access_log_page() ) {
 			// Disallow access.
-			wp_die( esc_html( 'Sorry, you are not allowed to access this page.' ), 403 );
+			wp_die( esc_html__( 'Sorry, you are not allowed to access this page.', 'logify-wp' ), 403 );
 		}
 
 		// Get all the data required for the log page.
@@ -167,9 +277,9 @@ class Log_Page {
 		// Verify the nonce.
 		check_ajax_referer( 'logify-wp-log-page', 'security' );
 
-		// Ensure user is logged in.
-		if ( ! is_user_logged_in() ) {
-			wp_send_json_error( array( 'message' => 'User not logged in.' ), 403 );
+		// Column preferences are only available to users permitted to view the log.
+		if ( ! Access_Control::can_access_log_page() ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to view activity logs.', 'logify-wp' ) ), 403 );
 		}
 
 		// Get and validate the column name.
@@ -177,33 +287,19 @@ class Log_Page {
 		$visible = isset( $_POST['visible'] ) ? (bool) $_POST['visible'] : false;
 
 		// Validate column name.
-		$allowed_columns = array( 'logify_wp_col_user', 'logify_wp_col_ip', 'logify_wp_col_notes' );
+		$allowed_columns = array( 'logify_wp_col_user', 'logify_wp_col_ip', 'logify_wp_col_object', 'logify_wp_col_notes' );
 		if ( ! in_array( $column, $allowed_columns, true ) ) {
-			wp_send_json_error( array( 'message' => 'Invalid column.' ), 400 );
+			wp_send_json_error( array( 'message' => __( 'Invalid column.', 'logify-wp' ) ), 400 );
 		}
 
 		$user_id = get_current_user_id();
 
-		// Save the preference to user meta.
-		if ( $visible ) {
-			// For Notes: default is visible, so remove the meta key.
-			// For User/IP: only save if visible.
-			if ( 'logify_wp_col_notes' === $column ) {
-				delete_user_meta( $user_id, $column );
-			} else {
-				update_user_meta( $user_id, $column, 'visible' );
-			}
-		} else {
-			// For Notes: save as 'hidden'.
-			// For User/IP: remove the meta key (hidden is default).
-			if ( 'logify_wp_col_notes' === $column ) {
-				update_user_meta( $user_id, $column, 'hidden' );
-			} else {
-				delete_user_meta( $user_id, $column );
-			}
-		}
+		// Persist both states explicitly. A missing value means the new default:
+		// User/IP/Notes visible, Object hidden. Saving an explicit hidden state
+		// prevents previously customized users losing their choice on refresh.
+		update_user_meta( $user_id, $column, $visible ? 'visible' : 'hidden' );
 
-		wp_send_json_success( array( 'message' => 'Column preference saved.' ) );
+		wp_send_json_success( array( 'message' => __( 'Column preference saved.', 'logify-wp' ) ) );
 	}
 
 	/**
@@ -241,14 +337,18 @@ class Log_Page {
 		}
 
 		// Build the IN clause for the query.
-		$placeholders = implode( ',', array_fill( 0, count( $event_ids ), '%d' ) );
-		$query        = $wpdb->prepare(
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			"SELECT * FROM {$notes_table} WHERE activity_id IN ($placeholders) ORDER BY note_id DESC",
-			$event_ids
+		$placeholders = Database::in_placeholders( count( $event_ids ) );
+		// The table name is bound with %i; only the placeholder list built by
+		// Database::in_placeholders() is interpolated. Previously the table name itself was
+		// interpolated into the query string here.
+		$query = $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Placeholder list only; see Database::in_placeholders().
+			"SELECT * FROM %i WHERE activity_id IN ($placeholders) ORDER BY note_id DESC",
+			array_merge( array( $notes_table ), $event_ids )
 		);
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $query is the result of $wpdb->prepare() above (table and integer IDs bound).
 		$results = $wpdb->get_results( $query );
 
 		// Map notes by event ID, keeping only the most recent note per event.
@@ -272,7 +372,7 @@ class Log_Page {
 
 		// Check user capabilities.
 		if ( ! Access_Control::can_access_log_page() ) {
-			wp_send_json_error( array( 'message' => esc_html( 'You are not allowed to access this data.' ) ), 403 );
+			wp_send_json_error( array( 'message' => esc_html__( 'You are not allowed to access this data.', 'logify-wp' ) ), 403 );
 		}
 
 		global $wpdb;
@@ -316,7 +416,7 @@ class Log_Page {
 			}
 		}
 		// Include ordering by event ID, if not already included.
-		if ( ! in_array( 'event_id', $order_by_columns ) ) {
+		if ( ! in_array( 'event_id', $order_by_columns, true ) ) {
 			$order_by_columns[] = 'event_id';
 		}
 
@@ -334,64 +434,37 @@ class Log_Page {
 			: '';
 
 		
-		// Get the object types to show events for.
-		$valid_object_types = array_keys( Logger::VALID_OBJECT_TYPES );
-		if ( ! empty( $_COOKIE['object_types'] ) ) {
-			$cookie_value          = sanitize_text_field( wp_unslash( $_COOKIE['object_types'] ) );
-			$selected_object_types = json_decode( stripslashes( $cookie_value ), true );
-			$object_types          = is_array( $selected_object_types )
-				? array_keys( array_filter( $selected_object_types ) )
-				: array();
-
-			// Only ever accept object types we recognise. The cookie is client-controlled
-			// and these values reach the WHERE clause, so an allow-list is mandatory here.
-			$object_types = array_values( array_intersect( $object_types, $valid_object_types ) );
-
-			// An empty or entirely invalid cookie means "no filter", not "match nothing".
-			if ( ! $object_types ) {
-				$object_types = $valid_object_types;
-			}
-		} else {
-			$object_types = $valid_object_types;
-		}
-
-		// Get the date range.
-		$start_date = isset( $_COOKIE['start_date'] )
-			? sanitize_text_field( wp_unslash( $_COOKIE['start_date'] ) )
-			: null;
-		$end_date   = isset( $_COOKIE['end_date'] )
-			? sanitize_text_field( wp_unslash( $_COOKIE['end_date'] ) )
-			: null;
-
-		// Get the post type and taxonomy.
-		$post_type = isset( $_COOKIE['post_type'] )
-			? sanitize_text_field( wp_unslash( $_COOKIE['post_type'] ) )
-			: null;
-		$taxonomy  = isset( $_COOKIE['taxonomy'] )
-			? sanitize_text_field( wp_unslash( $_COOKIE['taxonomy'] ) )
-			: null;
-
-		// Get the event type.
-		$event_type = isset( $_COOKIE['event_type'] )
-			? sanitize_text_field( wp_unslash( $_COOKIE['event_type'] ) )
-			: null;
-
-		// Get the user.
-		$user_id = isset( $_COOKIE['user_id'] )
-			? sanitize_text_field( wp_unslash( $_COOKIE['user_id'] ) )
-			: null;
-
-		// Get the role.
-		$role = isset( $_COOKIE['role'] )
-			? sanitize_text_field( wp_unslash( $_COOKIE['role'] ) )
-			: null;
+		// Note: the filter values (object types, dates, post type, taxonomy, event type, user
+		// and role) are read from the same cookies inside Log_Filters::build_where_clause().
 
 		// -----------------------------------------------------------------------------------------
 		// Get the total number of events in the database.
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$num_total_records = (int) $wpdb->get_var(
-			$wpdb->prepare( 'SELECT COUNT(*) FROM %i', $events_table_name )
-		);
+		//
+		// COUNT(*) with no WHERE clause has to walk the whole index, and this figure is only
+		// used for DataTables' "of N entries" label. On a large log that was a needless full
+		// count on every draw - every sort, every page, every keystroke in the search box - so
+		// it is cached briefly. A count that is a few minutes stale in a label is a fair trade
+		// for not hammering a shared-hosting database.
+		$total_cache_key   = 'logify_wp_events_total';
+		$num_total_records = get_transient( $total_cache_key );
+
+		if ( $num_total_records === false ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$num_total_records = (int) $wpdb->get_var(
+				$wpdb->prepare( 'SELECT COUNT(*) FROM %i', $events_table_name )
+			);
+
+			/**
+			 * Filters how long the total event count is cached, in seconds.
+			 *
+			 * @param int $ttl Default five minutes.
+			 */
+			$ttl = (int) apply_filters( 'logify_wp_total_count_cache_ttl', 5 * MINUTE_IN_SECONDS );
+
+			set_transient( $total_cache_key, $num_total_records, max( 30, $ttl ) );
+		}
+
+		$num_total_records = (int) $num_total_records;
 
 		// -----------------------------------------------------------------------------------------
 		// Get the number of filtered records.
@@ -400,140 +473,12 @@ class Log_Page {
 		$select_count = 'SELECT COUNT(*) FROM %i e LEFT JOIN %i u ON e.user_id = u.ID';
 
 		// Build the where clause.
-		$where_parts = array();
-		$where_args  = array();
-		
-
-		// Filter by search string if specified.
-		if ( $search_value !== '' ) {
-			$where_parts[] =
-				'(when_happened LIKE %s
-                    OR user_role LIKE %s
-                    OR user_ip LIKE %s
-                    OR user_location LIKE %s
-                    OR user_agent LIKE %s
-                    OR event_type LIKE %s
-                    OR object_type LIKE %s
-                    OR object_name LIKE %s
-                    OR user_login LIKE %s
-                    OR user_email LIKE %s
-                    OR display_name LIKE %s)';
-			$like_value    = '%' . $wpdb->esc_like( $search_value ) . '%';
-			$where_args    = array_merge(
-				$where_args,
-				array(
-					$like_value,
-					$like_value,
-					$like_value,
-					$like_value,
-					$like_value,
-					$like_value,
-					$like_value,
-					$like_value,
-					$like_value,
-					$like_value,
-					$like_value,
-				)
-			);
-		}
-
-		// Filter by object type and subtype if specified.
-		$all_object_types_selected = empty( array_diff( $valid_object_types, $object_types ) );
-		if ( ! $all_object_types_selected || $post_type || $taxonomy ) {
-			// Assemble the OR parts.
-			$or_parts = array();
-
-			// Filter by post type if specified.
-			if ( in_array( 'post', $object_types ) && $post_type ) {
-				// Remove 'post' from object_types.
-				$object_types = array_diff( $object_types, array( 'post' ) );
-				$or_parts[]   = "(object_type = 'post' AND object_subtype = %s)";
-				$where_args[] = $post_type;
-			}
-
-			// Filter by taxonomy if specified.
-			if ( in_array( 'term', $object_types ) && $taxonomy ) {
-				// Remove 'term' from object_types.
-				$object_types = array_diff( $object_types, array( 'term' ) );
-				$or_parts[]   = "(object_type = 'term' AND object_subtype = %s)";
-				$where_args[] = $taxonomy;
-			}
-
-			// Filter by the remaining object types.
-			if ( $object_types ) {
-				// Bind as parameters. Never interpolate these values, even though they are
-				// allow-listed above; prepare() treats the assembled WHERE fragment as
-				// literal SQL, so interpolation here would be an injection point.
-				$placeholders = implode( ',', array_fill( 0, count( $object_types ), '%s' ) );
-				$or_parts[]   = "object_type IN ($placeholders)";
-				$where_args   = array_merge( $where_args, $object_types );
-			}
-
-			// Add the OR parts to the where clause.
-			if ( count( $or_parts ) === 1 ) {
-				$where_parts[] = $or_parts[0];
-			} elseif ( count( $or_parts ) > 1 ) {
-				$where_parts[] = '(' . implode( ' OR ', $or_parts ) . ')';
-			}
-		}
-
-		// Filter by date range if specified.
-		if ( $start_date || $end_date ) {
-			// Get the date format and time zone from the site settings.
-			$date_format = get_option( 'date_format' );
-			$timezone_string = get_option('timezone_string');
-			if (!$timezone_string) {
-				// Fallback to gmt_offset if timezone_string is empty
-				$gmt_offset = get_option('gmt_offset', 0);
-				$timezone_string = timezone_name_from_abbr('', $gmt_offset * 3600, false);
-				if (!$timezone_string) {
-					$timezone_string = 'UTC'; // Fallback to UTC if both are invalid
-				}
-			}
-			$time_zone = new DateTimeZone($timezone_string);
-			// Start date.
-			if ( $start_date ) {
-				// Check the provided string is valid by converting it to a DateTime object.
-				$start_date = DateTime::createFromFormat( $date_format, $start_date, $time_zone );
-				if ( $start_date ) {
-					$where_parts[] = 'when_happened >= %s';
-					$where_args[]  = $start_date->format( 'Y-m-d 00:00:00' );
-				}
-			}
-
-			// End date.
-			if ( $end_date ) {
-				// Check the provided string is valid by converting it to a DateTime object.
-				$end_date = DateTime::createFromFormat( $date_format, $end_date, $time_zone );
-				if ( $end_date ) {
-					// Add a day, and look for events before this.
-					$end_date      = DateTimes::add_days( $end_date, 1 );
-					$where_parts[] = 'when_happened < %s';
-					$where_args[]  = $end_date->format( 'Y-m-d 00:00:00' );
-				}
-			}
-		}
-
-		// Filter by event type if specified.
-		if ( $event_type ) {
-			$where_parts[] = 'event_type = %s';
-			$where_args[]  = $event_type;
-		}
-
-		// Filter by user if specified.
-		if ( $user_id !== '' && $user_id !== null ) {
-			$where_parts[] = 'user_id = %d';
-			$where_args[]  = $user_id;
-		}
-
-		// Filter by role if specified.
-		if ( $role ) {
-			$where_parts[] = 'user_role LIKE %s';
-			$where_args[]  = '%' . $wpdb->esc_like( $role ) . '%';
-		}
-
-		// Complete building of the where clause.
-		$where = $where_parts ? ( 'WHERE ' . implode( ' AND ', $where_parts ) ) : '';
+		//
+		// This lives in Log_Filters so that the CSV export applies exactly the same filters as
+		// the table. When the two had their own copies, the export's date handling was already
+		// wrong: it compared the site-formatted date straight against the UTC column instead of
+		// parsing and converting it, so an export could span the wrong day.
+		list( $where, $where_args ) = Log_Filters::build_where_clause( $search_value );
 
 		// Construct and run the SQL statement.
 		$select_args          = array( $events_table_name, $users_table_name );
@@ -546,8 +491,9 @@ class Log_Page {
 		// -----------------------------------------------------------------------------------------
 		// Get the requested records.
 		
-		// Select clause.
-		$select = 'SELECT event_id FROM %i e LEFT JOIN %i u ON e.user_id = u.ID';
+		// Select clause. The full event row is selected here so that the loop below does not have
+		// to re-query each event individually (see the batch loading note further down).
+		$select = 'SELECT e.* FROM %i e LEFT JOIN %i u ON e.user_id = u.ID';
 		
 		// Order-by clause.
 		$order_by      = '';
@@ -588,9 +534,21 @@ class Log_Page {
 		$event_ids     = array_column( $recordset, 'event_id' );
 		$notes_map     = $notes_enabled ? self::batch_load_notes( $event_ids ) : array();
 
+		// Batch-load properties and metadata for the whole page in one query each.
+		// Up to 1.4.0 this loop called Event_Repository::load() per row, which ran four more
+		// queries for every row displayed (event, properties, eventmeta, note) plus a
+		// SHOW TABLES check. A 20-row page cost well over a hundred queries; it now costs about
+		// five regardless of page length.
+		$properties_map = Property_Repository::load_by_event_ids( $event_ids );
+		$eventmetas_map = Eventmeta_Repository::load_by_event_ids( $event_ids );
+
 		foreach ( $recordset as $record ) {
-			// Construct the Event object.
-			$event = Event_Repository::load( $record['event_id'] );
+			// Construct the Event object from the row we already have.
+			$event = Event_Repository::record_to_object( $record );
+
+			$event->properties = $properties_map[ $event->id ] ?? null;
+			$event->eventmetas = $eventmetas_map[ $event->id ] ?? null;
+			$event->eventnotes = $notes_map[ $event->id ] ?? null;
 
 			// Create a new data item.
 			$item             = array();
@@ -607,7 +565,7 @@ class Log_Page {
 			$item['display_name'] = get_avatar( $event->user_id, 32 ) . ' <div class="logify-wp-user-info">' . wp_kses_post( $user_tag ) . '<br><span class="logify-wp-user-role">' . esc_html( $user_role ) . '</span></div>';
 
 			// Source IP.
-			$item['user_ip'] = wp_kses_post( Urls::get_ip_link( $event->user_ip ) );
+			$item['user_ip'] = wp_kses_post( User_Utility::format_event_ip( $event ) );
 
 			// Event type.
 			$item['event_type'] = '<span class="' . esc_attr( "logify-wp-event-type logify-wp-object-type-$event->object_type" ) . '">' . esc_html( $event->event_type ) . '</span>';
@@ -634,13 +592,31 @@ class Log_Page {
 			}
 
 			// Handle edit link for notes.
-			if ( $notes_enabled ) {
+			if ( $notes_enabled && Access_Control::can_manage_notes() ) {
+				// Context for the note dialog. Someone who opens a note, gets interrupted and
+				// comes back to it needs to know which event they were writing about, so the
+				// event is described on the link and shown in the dialog.
+				$note_event_summary = $event->event_type;
+
+				if ( ! empty( $event->object_name ) ) {
+					$note_event_summary .= ' — ' . $event->object_name;
+				}
+
+				$note_event_date = DateTimes::format_datetime_site( $event->when_happened );
+
+				$note_data_attrs = ' data-event-id="' . intval( $event->id ) . '"'
+					. ' data-event-summary="' . esc_attr( $note_event_summary ) . '"'
+					. ' data-event-date="' . esc_attr( $note_event_date ) . '"';
+
 				if ( $note && isset( $note->user_id ) && (int) $note->user_id === (int) get_current_user_id() ) {
 					// Current user owns this note, allow edit.
-					$item['edit_link'] = '<a href="#" class="edit-note-link" data-note-id="' . intval( $note->note_id ) . '" data-note-content="' . esc_attr( $note->note ) . '">View/Edit Note</a>';
+					$item['edit_link'] = '<a href="#" class="edit-note-link" data-note-id="' . intval( $note->note_id ) . '"'
+						. ' data-note-content="' . esc_attr( $note->note ) . '"'
+						. $note_data_attrs . '>' . esc_html__( 'View/Edit Note', 'logify-wp' ) . '</a>';
 				} else {
 					// Either no note exists or current user doesn't own it, allow adding/creating.
-					$item['edit_link'] = '<a href="#" class="edit-note-link" data-event-id="' . intval( $event->id ) . '">Add Note</a>';
+					$item['edit_link'] = '<a href="#" class="edit-note-link"' . $note_data_attrs . '>'
+						. esc_html__( 'Add Note', 'logify-wp' ) . '</a>';
 				}
 			} else {
 				$item['edit_link'] = '';
@@ -670,32 +646,41 @@ class Log_Page {
 	public static function format_user_details( Event $event ): string {
 		// Construct the HTML.
 		$html  = "<div class='logify-wp-details-section logify-wp-user-details-section'>\n";
-		$html .= "<h4>User Details</h4>\n";
+		$html .= '<h4>' . esc_html__( 'User Details', 'logify-wp' ) . "</h4>\n";
 		$html .= "<div class='logify-wp-details-table-wrapper'>\n";
 		$html .= "<table class='logify-wp-details-table logify-wp-user-details-table'>\n";
 
 		// User tag.
 		$user_tag = User_Utility::get_tag( $event->user_id, $event->user_name );
-		$html    .= "<tr><th>User</th><td>$user_tag</td></tr>\n";
+		$html    .= '<tr><th>' . esc_html__( 'User', 'logify-wp' ) . '</th>' . "<td>$user_tag</td></tr>\n";
 
 		// Role.
 		$user_role = esc_html( ucwords( $event->user_role ) );
-		$html     .= "<tr><th>Role</th><td>$user_role</td></tr>\n";
+		$html     .= '<tr><th>' . esc_html__( 'Role', 'logify-wp' ) . '</th>' . "<td>$user_role</td></tr>\n";
 
 		// User ID.
-		$html .= "<tr><th>ID</th><td>$event->user_id</td></tr>";
+		$html .= '<tr><th>' . esc_html__( 'ID', 'logify-wp' ) . '</th>' . '<td>' . esc_html( (string) $event->user_id ) . '</td></tr>';
 
 		// IP address.
-		$ip_link = $event->user_ip ? Urls::get_ip_link( $event->user_ip ) : 'Unknown';
-		$html   .= "<tr><th>IP address</th><td>$ip_link</td></tr>\n";
+		$ip_link = User_Utility::format_event_ip( $event );
+		$html   .= '<tr><th>' . esc_html__( 'Visitor IP', 'logify-wp' ) . '</th>' . "<td>$ip_link</td></tr>\n";
+		$reported = User_Utility::get_reported_event_ip( $event );
+		if ( $reported ) {
+			$html .= '<tr><th>' . esc_html__( 'Connection IP (audited)', 'logify-wp' ) . '</th><td>' . esc_html( (string) $event->user_ip ) . "</td></tr>\n";
+		}
+		$ip_source = User_Utility::get_event_ip_attribution( $event )['source'] ?? null;
+		if ( is_string( $ip_source ) ) {
+			$html .= '<tr><th>' . esc_html__( 'IP source', 'logify-wp' ) . '</th><td>' . esc_html( $ip_source ) . "</td></tr>\n";
+		}
+
 
 		// User location.
-		$user_location = empty( $event->user_location ) ? 'Unknown' : esc_html( $event->user_location );
-		$html         .= "<tr><th>Location</th><td>$user_location</td></tr>\n";
+		$user_location = empty( $event->user_location ) ? esc_html__( 'Unknown', 'logify-wp' ) : esc_html( $event->user_location );
+		$html         .= '<tr><th>' . esc_html__( 'Location', 'logify-wp' ) . '</th>' . "<td>$user_location</td></tr>\n";
 
 		// User agent.
-		$user_agent = empty( $event->user_agent ) ? 'Unknown' : esc_html( $event->user_agent );
-		$html      .= "<tr><th>User agent</th><td>$user_agent</td></tr>\n";
+		$user_agent = esc_html( User_Utility::describe_user_agent( $event->user_agent ) );
+		$html      .= '<tr><th>' . esc_html__( 'User agent', 'logify-wp' ) . '</th>' . "<td>$user_agent</td></tr>\n";
 
 		// If the user has been deleted, we won't have all their details. Although, we could
 		// try looking up the log entry for when the user was deleted, and see if we can
@@ -707,23 +692,23 @@ class Log_Page {
 			$user = User_Utility::load( $event->user_id );
 
 			// User email.
-			$user_email = empty( $user->user_email ) ? 'Unknown' : esc_html( $user->user_email );
-			$html      .= '<tr><th>Email</th><td>' . User_Utility::get_email_link( $user_email ) . "</a></td></tr>\n";
+			$user_email = empty( $user->user_email ) ? esc_html__( 'Unknown', 'logify-wp' ) : esc_html( $user->user_email );
+			$html      .= '<tr><th>' . esc_html__( 'Email', 'logify-wp' ) . '</th><td>' . User_Utility::get_email_link( $user_email ) . "</td></tr>\n";
 
 			// Get the registration datetime.
 			$registration_datetime        = DateTimes::create_datetime( $user->data->user_registered, 'UTC' );
 			$registration_datetime_string = DateTimes::format_datetime_site( $registration_datetime );
-			$html                        .= "<tr><th>Registered</th><td>$registration_datetime_string</td></tr>\n";
+			$html                        .= '<tr><th>' . esc_html__( 'Registered', 'logify-wp' ) . '</th>' . "<td>$registration_datetime_string</td></tr>\n";
 
 			// Get the last login datetime.
 			$last_login_datetime        = User_Utility::get_last_login_datetime( $event->user_id );
-			$last_login_datetime_string = $last_login_datetime !== null ? DateTimes::format_datetime_site( $last_login_datetime ) : 'Unknown';
-			$html                      .= "<tr><th>Last login</th><td>$last_login_datetime_string</td></tr>\n";
+			$last_login_datetime_string = $last_login_datetime !== null ? DateTimes::format_datetime_site( $last_login_datetime ) : esc_html__( 'Unknown', 'logify-wp' );
+			$html                      .= '<tr><th>' . esc_html__( 'Last login', 'logify-wp' ) . '</th>' . "<td>$last_login_datetime_string</td></tr>\n";
 
 			// Get the last active datetime.
 			$last_active_datetime        = User_Utility::get_last_active_datetime( $event->user_id );
-			$last_active_datetime_string = $last_active_datetime !== null ? DateTimes::format_datetime_site( $last_active_datetime ) : 'Unknown';
-			$html                       .= "<tr><th>Last active</th><td>$last_active_datetime_string</td></tr>\n";
+			$last_active_datetime_string = $last_active_datetime !== null ? DateTimes::format_datetime_site( $last_active_datetime ) : esc_html__( 'Unknown', 'logify-wp' );
+			$html                       .= '<tr><th>' . esc_html__( 'Last active', 'logify-wp' ) . '</th>' . "<td>$last_active_datetime_string</td></tr>\n";
 		}
 
 		$html .= "</table>\n";
@@ -745,12 +730,21 @@ class Log_Page {
 			return '';
 		}
 
+		// IP attribution is rendered in User Details with verification labels.
+		// Do not show the raw internal attribution array a second time here.
+		$visible_metas = array_filter( $event->eventmetas, static function ( $eventmeta ) {
+			return $eventmeta->meta_key !== 'logify_ip_attribution';
+		} );
+		if ( ! $visible_metas ) {
+			return '';
+		}
+
 		// Convert eventmetas to a table of key-value pairs.
 		$html  = "<div class='logify-wp-details-section logify-wp-eventmeta-section'>\n";
-		$html .= "<h4>Event Details</h4>\n";
+		$html .= '<h4>' . esc_html__( 'Event Details', 'logify-wp' ) . "</h4>\n";
 		$html .= "<div class='logify-wp-details-table-wrapper'>\n";
 		$html .= "<table class='logify-wp-details-table logify-wp-eventmeta-table'>\n";
-		foreach ( $event->eventmetas as $eventmeta ) {
+		foreach ( $visible_metas as $eventmeta ) {
 			// Meta keys are attacker-influenced (e.g. username_entered). Escape the
 			// label; the value is escaped inside Types::value_to_html().
 			$label = esc_html( Strings::key_to_label( $eventmeta->meta_key ) );
@@ -845,7 +839,7 @@ class Log_Page {
 			default  => Strings::key_to_label( $event->object_type, true ),
 		};
 
-		$html .= '<h4>' . esc_html( $object_type_title ) . " Details</h4>\n";
+		$html .= '<h4>' . esc_html( sprintf( /* translators: %s: object type, for example Post or User. */ __( '%s Details', 'logify-wp' ), $object_type_title ) ) . "</h4>\n";
 
 		// Start scrollable wrapper.
 		$html .= "<div class='logify-wp-details-table-wrapper'>\n";

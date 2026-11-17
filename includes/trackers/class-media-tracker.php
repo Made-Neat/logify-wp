@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_Post;
 
 /**
@@ -56,20 +61,20 @@ class Media_Tracker {
 	 */
 	public static function init() {
 		// Add or update media.
-		add_action( 'add_attachment', array(__NAMESPACE__.'\\Async_Tracker','async_add_attachment'), 10, 1 );
+		add_action( 'add_attachment', Async_Tracker::safe_callback( 'async_add_attachment', false ), 10, 1 );
 		add_action( 'middle_add_attachment', array( __CLASS__, 'on_add_attachment' ), 10, 3 );
 		
-		add_action( 'add_post_meta', array(__NAMESPACE__.'\Async_Tracker','async_add_post_meta'), 10, 3 );
+		add_action( 'add_post_meta', Async_Tracker::safe_callback( 'async_add_post_meta', false ), 10, 3 );
 		add_action( 'middle_add_post_meta', array( __CLASS__, 'on_add_post_meta' ), 10, 5 );
 		
-		add_action( 'update_post_meta', array(__NAMESPACE__.'\Async_Tracker','async_update_post_meta'), 10, 4 );
+		add_action( 'update_post_meta', Async_Tracker::safe_callback( 'async_update_post_meta', false ), 10, 4 );
 		add_action( 'middle_update_post_meta', array( __CLASS__, 'on_update_post_meta' ), 10, 6 );
 		
-		add_action( 'attachment_updated', array(__NAMESPACE__.'\\Async_Tracker','async_attachment_updated'), 10, 3 );
+		add_action( 'attachment_updated', Async_Tracker::safe_callback( 'async_attachment_updated', false ), 10, 3 );
 		add_action( 'middle_attachment_updated', array( __CLASS__, 'on_attachment_updated' ), 10, 5 );
 		
 		// Delete media.
-		add_action( 'delete_attachment', array(__NAMESPACE__.'\\Async_Tracker','async_delete_attachment'), 10, 2 );
+		add_action( 'delete_attachment', Async_Tracker::safe_callback( 'async_delete_attachment', false ), 10, 2 );
 		add_action( 'middle_delete_attachment', array( __CLASS__, 'on_delete_attachment' ), 10, 4 );
 		
 		// Flush pending media event changes at the end of the current request.
@@ -160,9 +165,7 @@ class Media_Tracker {
 	 */
 	public static function on_add_attachment( int $post_id, int $acting_user = 0, ?string $client_ip = null ) {
 		Debug::info( __CLASS__, __FUNCTION__ );
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
-			error_log( '[Logify WP] Media_Tracker::on_add_attachment called for post_id: ' . $post_id );
-		}
+		Debug::verbose( 'Media_Tracker::on_add_attachment', 'post_id', $post_id );
 
 		// Get the event.
 		$event = self::get_update_media_event( $post_id, $acting_user, $client_ip );
@@ -195,9 +198,9 @@ class Media_Tracker {
 	 */
 	public static function on_add_post_meta( int $post_id, string $meta_key, mixed $meta_value, ?int $acting_user_id = null, ?string $client_ip = null ) {
 		Debug::info( __CLASS__, __FUNCTION__ );
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
-			error_log( '[Logify WP] Media_Tracker::on_add_post_meta called for post_id: ' . $post_id . ' | meta_key: ' . $meta_key . ' | meta_value: ' . var_export($meta_value, true) );
-		}
+		// The meta value is passed through rather than exported here: var_export() ran on every
+		// meta write whenever WP_DEBUG was on, even though the result was usually discarded.
+		Debug::verbose( 'Media_Tracker::on_add_post_meta', 'post_id', $post_id, 'meta_key', $meta_key, 'meta_value', $meta_value );
 
 		return self::on_update_post_meta( 0, $post_id, $meta_key, $meta_value, $acting_user_id, $client_ip );
 	}
@@ -211,13 +214,11 @@ class Media_Tracker {
 	 * @param mixed  $meta_value The new value of the meta data.
 	 */
 	public static function on_update_post_meta( int $meta_id, int $post_id, string $meta_key, mixed $meta_value, ?int $acting_user_id = null, ?string $client_ip = null ) {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
-			error_log( '[Logify WP] Media_Tracker::on_update_post_meta called for meta_id: ' . $meta_id . ' | post_id: ' . $post_id . ' | meta_key: ' . $meta_key . ' | meta_value: ' . var_export($meta_value, true) );
-		}
+		Debug::verbose( 'Media_Tracker::on_update_post_meta', 'meta_id', $meta_id, 'post_id', $post_id, 'meta_key', $meta_key, 'meta_value', $meta_value );
 		global $wpdb;
 
 		// Some changes are uninteresting.
-		if ( in_array( $meta_key, array( '_edit_lock', '_edit_last' ) ) ) {
+		if ( in_array( $meta_key, array( '_edit_lock', '_edit_last' ), true ) ) {
 			return;
 		}
 
@@ -277,9 +278,7 @@ class Media_Tracker {
 	 * @param string|null $client_ip           Client IP address.
 	 */
 	public static function on_attachment_updated( int $post_id, $serialize_post_after, $serialize_post_before, int $acting_user = 0, ?string $client_ip = null ) {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
-			error_log( '[Logify WP] Media_Tracker::on_attachment_updated called for post_id: ' . $post_id );
-		}
+		Debug::verbose( 'Media_Tracker::on_attachment_updated', 'post_id', $post_id );
 
 		//unserialize post objects safely
 		if (is_string($serialize_post_after)) {
@@ -377,9 +376,7 @@ class Media_Tracker {
 	 * @param string|null $client_ip    Client IP address.
 	 */
 	public static function on_delete_attachment( int $post_id, $serialize_post, int $acting_user = 0, ?string $client_ip = null ) {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
-			error_log( '[Logify WP] Media_Tracker::on_delete_attachment called for post_id: ' . $post_id );
-		}
+		Debug::verbose( 'Media_Tracker::on_delete_attachment', 'post_id', $post_id );
 		// This method is only for attachments.
 		if (is_string($serialize_post)) {
 			$post = null;
@@ -409,8 +406,17 @@ class Media_Tracker {
 		// Get the event type.
 		$event_type = 'Media Deleted';
 
+		// Was this file only ever here in passing?
+		//
+		// Updating a plugin or theme by uploading a zip can put that zip into the media library
+		// and remove it again moments later. The deletion is still recorded - an audit log
+		// cannot tell a throwaway upload apart from someone removing a client's file, and
+		// guessing wrong would leave a blind spot - but a file that existed for a couple of
+		// minutes is flagged so it can be recognised at a glance.
+		$eventmetas = self::maybe_flag_short_lived( $post );
+
 		// Create the event with acting user and client IP.
-		$event = Event::create( $event_type, $post, null, null, $acting_user ?: null, false, $client_ip );
+		$event = Event::create( $event_type, $post, $eventmetas, null, $acting_user ?: null, false, $client_ip );
 
 		// If the event could not be created, we aren't tracking this user.
 		if ( ! $event ) {
@@ -434,9 +440,7 @@ class Media_Tracker {
 	 * Fires on shutdown, after PHP execution.
 	 */
 	public static function on_shutdown() {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
-			error_log( '[Logify WP] Media_Tracker::on_shutdown called. Event exists: ' . ( self::$update_media_event ? 'YES' : 'NO' ) . ' | Creating: ' . ( self::$creating ? 'YES' : 'NO' ) );
-		}
+		Debug::verbose( 'Media_Tracker::on_shutdown', 'event exists', (bool) self::$update_media_event, 'creating', self::$creating );
 		// Save the media updated or added event, if it exists.
 		if ( self::$update_media_event ) {
 			if ( self::$creating || self::$update_media_event->has_changes() ) {
@@ -447,5 +451,42 @@ class Media_Tracker {
 				self::$update_media_event->delete();
 			}
 		}
+	}
+
+	/**
+	 * Flag an attachment that was created and deleted within a few minutes.
+	 *
+	 * @param mixed $post The attachment being deleted.
+	 * @return ?array Eventmetas describing the short life, or null.
+	 */
+	private static function maybe_flag_short_lived( $post ): ?array {
+		if ( ! is_object( $post ) || empty( $post->post_date_gmt ) ) {
+			return null;
+		}
+
+		$created = strtotime( $post->post_date_gmt . ' UTC' );
+
+		if ( ! $created ) {
+			return null;
+		}
+
+		$lifetime = time() - $created;
+
+		/**
+		 * Filters how long an attachment may live before it stops counting as a throwaway
+		 * upload.
+		 *
+		 * @param int $seconds Default five minutes.
+		 */
+		$threshold = (int) apply_filters( 'logify_wp_short_lived_upload_seconds', 5 * MINUTE_IN_SECONDS );
+
+		if ( $lifetime < 0 || $lifetime > $threshold ) {
+			return null;
+		}
+
+		return array(
+			new Eventmeta( null, 'short_lived_upload', true ),
+			new Eventmeta( null, 'lifetime_seconds', $lifetime ),
+		);
 	}
 }

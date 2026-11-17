@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use DateTime;
 
 /**
@@ -159,6 +164,60 @@ class Types {
 			return $value->get_tag();
 		}
 
-		return esc_html( self::value_to_string( $value ) );
+		$string = self::value_to_string( $value );
+
+		// Some stored property values are a single anchor built by the plugin's own utilities -
+		// a plugin's "Link" and "Author" headers, for example. Escaping those printed the raw
+		// markup on screen instead of a link, which is what happened from 1.4.0 onward when
+		// output escaping was tightened here. Anything that is exactly one anchor is passed
+		// through wp_kses() with a minimal allow-list, so a link renders while any script,
+		// event handler or javascript: URI in it is stripped. Everything else stays escaped.
+		$link = self::maybe_anchor( $string );
+
+		if ( $link !== null ) {
+			return $link;
+		}
+
+		return esc_html( $string );
+	}
+
+	/**
+	 * If a string is exactly one anchor tag, return a sanitised version of it.
+	 *
+	 * Deliberately narrow: the whole string has to be a single <a> element, so an arbitrary
+	 * logged value containing markup is still escaped as text rather than rendered. wp_kses()
+	 * then strips everything but the handful of attributes a link needs, and rejects
+	 * javascript: and data: URIs.
+	 *
+	 * @param string $string The candidate string.
+	 * @return ?string The sanitised anchor, or null if the string is not a lone anchor.
+	 */
+	private static function maybe_anchor( string $string ): ?string {
+		$trimmed = trim( $string );
+
+		if ( $trimmed === '' || stripos( $trimmed, '<a ' ) !== 0 ) {
+			return null;
+		}
+
+		// One opening tag, one closing tag, nothing else outside them.
+		if ( ! preg_match( '#^<a\s[^>]*>[^<]*</a>$#i', $trimmed ) ) {
+			return null;
+		}
+
+		$allowed = array(
+			'a' => array(
+				'href'   => true,
+				'title'  => true,
+				'target' => true,
+				'rel'    => true,
+				'class'  => true,
+			),
+		);
+
+		$safe = wp_kses( $trimmed, $allowed );
+
+		// If kses removed the anchor entirely - a javascript: URI, for instance - fall back to
+		// escaping so the value is still visible in the log.
+		return stripos( $safe, '<a' ) === 0 ? $safe : null;
 	}
 }

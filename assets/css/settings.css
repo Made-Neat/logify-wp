@@ -1,61 +1,548 @@
-body.logify-wp_page_logify-wp-settings {
-  background-color: #eee;
+/**
+ * Logify WP settings page.
+ *
+ * Built on top of the WordPress admin styles rather than replacing them, so the page keeps
+ * working when WordPress changes its own colours, spacing or dark-mode handling. Brand accents
+ * are applied through the tokens below and nowhere else.
+ */
+
+.logify-wp-settings {
+	/* ---------------------------------------------------------------------------------------
+	 * Brand tokens. Change --logify-brand to recolour every accent on the page.
+	 * --------------------------------------------------------------------------------------- */
+	/* The marketing site's green. Used for decoration - card rules, tints - where contrast
+	 * against a background does not carry meaning. */
+	--logify-brand: #40bb78;
+
+	/* White text on #40bb78 measures 2.44:1, which fails WCAG AA for text (4.5:1) and the
+	 * 3:1 minimum for interface components. Anything that has to be legible - the primary
+	 * button, links, focus rings - uses this darker green from the same family instead, at
+	 * 4.82:1 against white. */
+	--logify-brand-dark: #1b8250;
+	--logify-brand-darker: #16693f;
+	--logify-brand-tint: rgba(64, 187, 120, 0.1);
+	--logify-brand-tint-strong: rgba(64, 187, 120, 0.18);
+
+	--logify-danger: #b32d2e;
+	--logify-danger-dark: #8f2424;
+
+	/* Surfaces borrow from WordPress's own admin palette where one is exposed, so the page
+	 * follows the active admin colour scheme instead of fighting it. */
+	--logify-surface: #fff;
+	--logify-border: #dcdcde;
+	--logify-text-muted: #50575e;
+	--logify-radius: 6px;
+	--logify-gap: 20px;
 }
 
-.wrap .logify-wp-settings-table {
-  width: 100%;
-}
-.wrap .logify-wp-settings-table th {
-  width: 16rem;
-}
-
-.logify-wp-settings-radio {
-  display: block;
-  margin: 0.5rem 0;
+/* -------------------------------------------------------------------------------------------
+ * Layout. A single fluid grid: one column on small screens, two once there is room. The old
+ * page used a fixed narrow column, which left most of a desktop window empty.
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-settings-grid {
+	margin-top: var(--logify-gap);
+	max-width: 1400px;
 }
 
-#logify-wp-delete-logs-button {
-  background-color: #dc3232;
-  border-color: #dc3232;
-  color: white;
-  box-shadow: 0 0 0 1px #dc3232;
-}
-#logify-wp-delete-logs-button:hover {
-  background-color: #e04848;
-  border-color: #e04848;
-  box-shadow: 0 0 0 1px #e04848;
+.logify-wp-settings-grid > .logify-wp-card {
+	margin-bottom: var(--logify-gap);
 }
 
-.logify-wp-settings-group {
-  border: solid 1px #ccc;
-  border-radius: 0.5rem;
-  width: 40rem;
-  padding: 1rem;
-  background-color: #f7f7f7;
-  margin-top: 1rem;
-}
-.logify-wp-settings-group legend {
-  font-size: 1rem;
-  font-weight: bold;
+/* CSS columns rather than a grid. A grid aligns rows, so a short card leaves a tall empty
+ * space beside a long one; columns flow and balance instead. break-inside keeps each card
+ * whole, and the reading and tab order follows each column top to bottom. */
+@media screen and (min-width: 1100px) {
+	.logify-wp-settings-grid {
+		columns: 2;
+		column-gap: var(--logify-gap);
+	}
+
+	.logify-wp-settings-grid > .logify-wp-card {
+		break-inside: avoid;
+		page-break-inside: avoid;
+	}
 }
 
-.logify-wp-role-access-msg {
-  color: #aaa;
+/* -------------------------------------------------------------------------------------------
+ * Cards
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-card {
+	background: var(--logify-surface);
+	border: 1px solid var(--logify-border);
+	border-radius: var(--logify-radius);
+	padding: 20px 24px 24px;
+	/* A single brand accent, rather than tinting the whole interface. */
+	border-top: 3px solid var(--logify-brand);
+	box-sizing: border-box;
 }
 
-#logify-wp-settings-users {
-  max-height: 8rem;
-  overflow: auto;
+.logify-wp-card__title {
+	margin: 0;
+	padding: 0;
+	font-size: 15px;
+	font-weight: 600;
+	line-height: 1.4;
 }
 
-.wp-core-ui .button-action {
-  background-color: #f56e28;
-  border-color: #f56e28;
-  color: white;
+.logify-wp-card__intro {
+	margin: 6px 0 0;
+	color: var(--logify-text-muted);
+	font-size: 13px;
+	max-width: 62ch;
 }
-.wp-core-ui .button-action:hover, .wp-core-ui .button-action:focus {
-  background-color: #f67e40;
-  border-color: #f67e40;
-  color: white;
-  box-shadow: none;
+
+.logify-wp-card > .logify-wp-field:first-of-type {
+	margin-top: 18px;
+}
+
+/* -------------------------------------------------------------------------------------------
+ * Fields
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-field {
+	margin-top: 22px;
+	padding-top: 22px;
+	border-top: 1px solid #f0f0f1;
+}
+
+.logify-wp-card > .logify-wp-field:first-of-type {
+	padding-top: 0;
+	border-top: 0;
+}
+
+.logify-wp-field fieldset {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-width: 0;
+}
+
+.logify-wp-field__label {
+	display: block;
+	margin: 0;
+	padding: 0;
+	font-weight: 600;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.logify-wp-field .description {
+	margin: 4px 0 0;
+	max-width: 62ch;
+	font-size: 13px;
+	font-style: normal;
+	color: var(--logify-text-muted);
+}
+
+/* Checkbox with its label and help text alongside. */
+.logify-wp-field--toggle {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+}
+
+.logify-wp-field--toggle > input[type="checkbox"] {
+	margin: 2px 0 0;
+	flex: 0 0 auto;
+}
+
+.logify-wp-field--toggle > div {
+	min-width: 0;
+}
+
+.logify-wp-field--toggle .logify-wp-field__label {
+	cursor: pointer;
+}
+
+/* -------------------------------------------------------------------------------------------
+ * Checkbox lists
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-checklist {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 2px 16px;
+	margin-top: 10px;
+}
+
+.logify-wp-check {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 5px 6px;
+	margin: 0 -6px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.logify-wp-check:hover {
+	background: var(--logify-brand-tint);
+}
+
+.logify-wp-check input[type="checkbox"] {
+	margin: 0;
+	flex: 0 0 auto;
+}
+
+.logify-wp-check input[type="checkbox"]:disabled + span {
+	color: var(--logify-text-muted);
+}
+
+.logify-wp-hint {
+	color: var(--logify-text-muted);
+	font-size: 12px;
+}
+
+/* In a narrow column an inline hint squeezed the name onto a second line, so hints sit
+ * underneath instead. The name itself is kept on one line. */
+.logify-wp-check__text {
+	display: block;
+	min-width: 0;
+}
+
+.logify-wp-check__name {
+	display: block;
+	overflow-wrap: anywhere;
+}
+
+.logify-wp-check .logify-wp-hint {
+	display: block;
+	line-height: 1.4;
+}
+
+/* -------------------------------------------------------------------------------------------
+ * User access picker
+ *
+ * Search results and granted users are single-column lists with the name on its own line, so
+ * a long name or an inline hint can never push the label onto a second line.
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-user-picker {
+	position: relative;
+}
+
+.logify-wp-user-search {
+	margin: 10px 0 0;
+}
+
+.logify-wp-user-search input[type="search"] {
+	width: 100%;
+	max-width: 420px;
+}
+
+.logify-wp-user-results {
+	max-width: 420px;
+	max-height: 260px;
+	overflow-y: auto;
+	margin-top: 4px;
+	border: 1px solid var(--logify-border);
+	border-radius: 4px;
+	background: var(--logify-surface);
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.logify-wp-user-results__item {
+	display: block;
+	width: 100%;
+	padding: 8px 12px;
+	border: 0;
+	border-bottom: 1px solid #f0f0f1;
+	background: none;
+	text-align: left;
+	cursor: pointer;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.logify-wp-user-results__item:last-child {
+	border-bottom: 0;
+}
+
+.logify-wp-user-results__item:hover:not(:disabled),
+.logify-wp-user-results__item:focus:not(:disabled) {
+	background: var(--logify-brand-tint);
+}
+
+.logify-wp-user-results__item:disabled {
+	cursor: default;
+	opacity: 0.65;
+}
+
+.logify-wp-user-results__name {
+	display: block;
+	font-weight: 600;
+}
+
+.logify-wp-user-results__item .logify-wp-hint {
+	display: inline-block;
+	margin-right: 8px;
+}
+
+.logify-wp-user-results__empty {
+	margin: 0;
+	padding: 10px 12px;
+	color: var(--logify-text-muted);
+	font-size: 13px;
+}
+
+.logify-wp-granted {
+	margin: 12px 0 0;
+	padding: 0;
+	list-style: none;
+	max-width: 420px;
+}
+
+.logify-wp-granted__item {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	margin: 0;
+	padding: 8px 10px;
+	border: 1px solid var(--logify-border);
+	border-radius: 4px;
+	background: var(--logify-brand-tint);
+}
+
+.logify-wp-granted__item + .logify-wp-granted__item {
+	margin-top: 6px;
+}
+
+.logify-wp-granted__item .logify-wp-check__name {
+	font-weight: 600;
+	font-size: 13px;
+}
+
+.logify-wp-granted__remove {
+	flex: 0 0 auto;
+	color: #b32d2e;
+	font-size: 12px;
+	text-decoration: underline;
+}
+
+.logify-wp-granted__remove:hover,
+.logify-wp-granted__remove:focus {
+	color: #8f2424;
+}
+
+.logify-wp-granted-empty {
+	margin-top: 12px;
+}
+
+.logify-wp-bulk {
+	margin: 10px 0 0;
+	font-size: 12px;
+	color: var(--logify-text-muted);
+}
+
+.logify-wp-bulk .button-link {
+	font-size: 12px;
+	color: var(--logify-brand-dark);
+}
+
+.logify-wp-inline-controls {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+/* -------------------------------------------------------------------------------------------
+ * Status panels
+ *
+ * Colour is never the only signal: each state has its own wording and, where it matters, a
+ * heading, so the meaning survives a monochrome screen or a colour vision deficiency.
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-status {
+	margin: 12px 0 0;
+	padding: 10px 14px;
+	border-left: 4px solid var(--logify-border);
+	border-radius: 3px;
+	background: #f6f7f7;
+	font-size: 13px;
+	max-width: 62ch;
+}
+
+.logify-wp-status p {
+	margin: 0;
+}
+
+.logify-wp-status p + p,
+.logify-wp-status ul {
+	margin-top: 6px;
+}
+
+.logify-wp-status__title {
+	font-weight: 600;
+}
+
+.logify-wp-status ul {
+	margin-bottom: 0;
+	padding-left: 18px;
+	list-style: disc;
+}
+
+.logify-wp-status ul li {
+	margin-bottom: 4px;
+}
+
+.logify-wp-status--ok {
+	border-left-color: var(--logify-brand-dark);
+	background: var(--logify-brand-tint);
+}
+
+.logify-wp-status--warning {
+	border-left-color: #dba617;
+	background: #fcf9e8;
+}
+
+.logify-wp-status--idle {
+	border-left-color: #c3c4c7;
+}
+
+.logify-wp-status__meta {
+	margin-top: 8px;
+	word-break: break-all;
+}
+
+.logify-wp-inline-notice {
+	margin: 8px 0 0;
+	padding: 8px 12px;
+	border-left: 3px solid var(--logify-brand);
+	background: var(--logify-brand-tint);
+	font-size: 13px;
+	max-width: 62ch;
+}
+
+/* Disabled controls, used for the error types that cannot be captured indefinitely. */
+.logify-wp-check input[type="checkbox"]:disabled,
+.logify-wp-check.is-disabled {
+	cursor: not-allowed;
+}
+
+.logify-wp-check.is-disabled span {
+	color: var(--logify-text-muted);
+}
+
+/* -------------------------------------------------------------------------------------------
+ * Actions
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+	margin: 0;
+	padding: 14px 0;
+	position: sticky;
+	bottom: 0;
+	background: #f0f0f1;
+	border-top: 1px solid var(--logify-border);
+	z-index: 5;
+}
+
+.logify-wp-settings .logify-wp-actions .button-primary {
+	background: var(--logify-brand-dark);
+	border-color: var(--logify-brand-dark);
+	color: #fff;
+	text-shadow: none;
+}
+
+.logify-wp-settings .logify-wp-actions .button-primary:hover,
+.logify-wp-settings .logify-wp-actions .button-primary:focus {
+	background: var(--logify-brand-darker);
+	border-color: var(--logify-brand-darker);
+	color: #fff;
+}
+
+/* -------------------------------------------------------------------------------------------
+ * Destructive actions
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-card--danger {
+	border-top-color: var(--logify-danger);
+	max-width: 700px;
+	margin-bottom: var(--logify-gap);
+}
+
+.logify-wp-settings .logify-wp-button--danger {
+	margin-top: 14px;
+	background: var(--logify-danger);
+	border-color: var(--logify-danger-dark);
+	color: #fff;
+}
+
+.logify-wp-settings .logify-wp-button--danger:hover,
+.logify-wp-settings .logify-wp-button--danger:focus {
+	background: var(--logify-danger-dark);
+	border-color: var(--logify-danger-dark);
+	color: #fff;
+}
+
+/* -------------------------------------------------------------------------------------------
+ * Focus. WordPress's own focus ring is kept, with the brand colour applied, so keyboard
+ * users get the same affordance they get everywhere else in the admin.
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-settings input[type="checkbox"]:focus,
+.logify-wp-settings input[type="search"]:focus,
+.logify-wp-settings select:focus,
+.logify-wp-settings .button:focus,
+.logify-wp-settings .button-link:focus {
+	border-color: var(--logify-brand-dark);
+	box-shadow: 0 0 0 1px var(--logify-brand-dark);
+	outline: 2px solid transparent;
+}
+
+/* -------------------------------------------------------------------------------------------
+ * Small screens. WordPress collapses admin layouts at 782px; match that breakpoint so
+ * touch targets grow at the same point as the rest of the admin.
+ * ------------------------------------------------------------------------------------------- */
+@media screen and (max-width: 782px) {
+	.logify-wp-card {
+		padding: 16px;
+	}
+
+	.logify-wp-checklist {
+		grid-template-columns: 1fr;
+	}
+
+	.logify-wp-check {
+		padding: 9px 6px;
+	}
+
+	.logify-wp-field--toggle > input[type="checkbox"] {
+		/* WordPress enlarges admin checkboxes on touch; keep them aligned with the label. */
+		margin-top: 0;
+	}
+
+	.logify-wp-actions {
+		position: sticky;
+		bottom: 0;
+		background: #f0f0f1;
+		border-top: 1px solid var(--logify-border);
+		margin-left: -12px;
+		margin-right: -12px;
+		padding: 12px;
+		z-index: 5;
+	}
+}
+
+/* -------------------------------------------------------------------------------------------
+ * Respect user preferences.
+ * ------------------------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+	.logify-wp-settings * {
+		transition: none !important;
+		animation: none !important;
+	}
+}
+
+@media (prefers-contrast: more) {
+	.logify-wp-card {
+		border-color: #1d2327;
+	}
+
+	.logify-wp-card__intro,
+	.logify-wp-field .description,
+	.logify-wp-hint {
+		color: #1d2327;
+	}
 }

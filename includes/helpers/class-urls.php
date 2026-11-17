@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Class Logify_WP\Urls
  *
@@ -21,8 +26,42 @@ class Urls {
 	 * @return bool True if the page exists, false otherwise.
 	 */
 	public static function url_exists( $url ): bool {
-		// Request the page.
-		$response = wp_remote_get( $url );
+		// Only ever fetch ordinary web URLs. Without this, a caller passing user input could
+		// make the server request internal services (metadata endpoints, localhost, private
+		// ranges) - see https://owasp.org/www-community/attacks/Server_Side_Request_Forgery.
+		$url = is_string( $url ) ? trim( $url ) : '';
+		if ( $url === '' ) {
+			return false;
+		}
+
+		$parts = wp_parse_url( $url );
+		if ( empty( $parts['scheme'] ) || empty( $parts['host'] ) ) {
+			return false;
+		}
+		if ( ! in_array( strtolower( $parts['scheme'] ), array( 'http', 'https' ), true ) ) {
+			return false;
+		}
+
+		// A literal private or reserved IP address is never a legitimate target here.
+		if ( filter_var( $parts['host'], FILTER_VALIDATE_IP ) &&
+			! filter_var( $parts['host'], FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ) {
+			return false;
+		}
+
+		// wp_safe_remote_head() applies WordPress's own HTTP request validation, which blocks
+		// requests that resolve to the local network unless the site explicitly allows them.
+		// HEAD is used because only the status code is needed.
+		$response = wp_safe_remote_head(
+			$url,
+			array(
+				'timeout'     => 3,
+				'redirection' => 2,
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return false;
+		}
 
 		// Check if the response code is 200.
 		return wp_remote_retrieve_response_code( $response ) === 200;

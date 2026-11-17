@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Tracks Beaver Builder layout saves, template saves, drafts, and settings changes.
  */
@@ -84,7 +89,7 @@ final class BeaverBuilder_Tracker {
      */
     private static function get_context(): array {
         $acting_user_id = get_current_user_id() ?: null;
-        return array( $acting_user_id, User_Utility::get_ip() );
+        return array( $acting_user_id, User_Utility::get_ip_context_token() );
     }
 
     /**

@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Class Logify_WP\Widget_Tracker
  *
@@ -52,7 +57,7 @@ class Widget_Tracker {
 		add_action( 'middle_update_option_widget', array( __CLASS__, 'on_update_option' ), 10, 5 );
 		add_action( 'middle_updated_option', array( __CLASS__, 'on_updated_option' ), 10, 5 );
 
-		add_action( 'shutdown', [ __NAMESPACE__ . '\Async_Tracker', 'async_shutdown_widget' ], 10, 0 );
+		add_action( 'shutdown', Async_Tracker::safe_callback( 'async_shutdown_widget', false ), 10, 0 );
 		add_action( 'middle_shutdown_widget', array( __CLASS__, 'on_shutdown' ), 10, 1 );
 	}
 
@@ -67,8 +72,8 @@ class Widget_Tracker {
 		self::$hooks_registered = true;
 
 		// Changes to widget options - only when on widgets page.
-		add_action( 'update_option', [ __NAMESPACE__ . '\Async_Tracker', 'async_update_option_widget' ], 10, 3 );
-		add_action( 'updated_option', [ __NAMESPACE__ . '\Async_Tracker', 'async_updated_option' ], 10, 3 );
+		add_action( 'update_option', Async_Tracker::safe_callback( 'async_update_option_widget', false ), 10, 3 );
+		add_action( 'updated_option', Async_Tracker::safe_callback( 'async_updated_option', false ), 10, 3 );
 	}
 
 	/**
@@ -79,6 +84,27 @@ class Widget_Tracker {
 	 * @param array  $new_option_value The new option value.
 	 */
 	public static function on_update_option( $option, $old_option_value, $new_option_value, $acting_user_id, ?string $client_ip = null ) {
+		// Safe transport sends identifier maps and HMAC summaries, not widget content.
+		// Fail closed if a malformed value reaches the async consumer.
+		if ( ! is_array( $old_option_value ) || ! is_array( $new_option_value ) ) {
+			// Even when a widget option cannot be safely summarized, leave a
+			// metadata-only event rather than silently dropping the change.
+			if ( str_starts_with( $option, 'widget_' ) || $option === 'sidebars_widgets' ) {
+				$ref = new Object_Reference( 'widget', null, 'Widget option: ' . $option );
+				$props = array();
+				Property::update_array( $props, 'settings', null, Sensitive_Data::OMITTED_BEFORE, Sensitive_Data::OMITTED_AFTER );
+				$event = Event::create( 'Widget Updated', $ref, null, $props, $acting_user_id, false, $client_ip );
+				if ( $event ) {
+					$event->object_key = $option;
+					self::$events[ $option ] = $event;
+				}
+			}
+			return;
+		}
+		if ( str_starts_with( $option, 'widget_' ) ) {
+			self::record_safe_widget_changes( $option, $old_option_value, $new_option_value, $acting_user_id, $client_ip );
+			return;
+		}
 		// Record changes to the widget locations.
 		if ( $option === 'sidebars_widgets' ) {
 			self::record_widget_areas( $old_option_value );
@@ -167,6 +193,13 @@ class Widget_Tracker {
 	 * @param array  $new_option_value The new option value.
 	 */
 	public static function on_updated_option( $option, $old_option_value, $new_option_value, $acting_user_id, ?string $client_ip = null ) {
+		if ( ! is_array( $old_option_value ) || ! is_array( $new_option_value ) ) {
+			return;
+		}
+		if ( str_starts_with( $option, 'widget_' ) ) {
+			self::record_safe_widget_additions( $option, $old_option_value, $new_option_value, $acting_user_id, $client_ip );
+			return;
+		}
 		// Beyond this point we're only interested in changes to widget details.
 		if ( ! str_starts_with( $option, 'widget_' ) ) {
 			return;
@@ -197,6 +230,50 @@ class Widget_Tracker {
 				if ( $event ) {
 					self::$events[ $widget_id ] = $event;
 				}
+			}
+		}
+	}
+
+	/**
+	 * Reconstruct only the event type and widget ID from safe digest maps.
+	 * Never save the digests themselves or rehydrate the original widget content.
+	 */
+	private static function record_safe_widget_changes( string $option, array $old, array $new, $user_id, ?string $client_ip ): void {
+		$type = substr( $option, strlen( 'widget_' ) );
+		foreach ( $old as $number => $before ) {
+			if ( ! is_array( $before ) || ! isset( $before['__logify_digest'] ) ) {
+				continue;
+			}
+			$id = $type . '-' . $number;
+			if ( ! isset( $new[ $number ] ) ) {
+				$event = Event::create( 'Widget Deleted', new Object_Reference( 'widget', null, 'Widget ' . $id ), null, null, $user_id, false, $client_ip );
+			} elseif ( $before['__logify_digest'] !== ( $new[ $number ]['__logify_digest'] ?? null ) ) {
+				$properties = array();
+				Property::update_array( $properties, 'settings', null, Sensitive_Data::OMITTED_BEFORE, Sensitive_Data::OMITTED_AFTER );
+				$event = Event::create( 'Widget Updated', new Object_Reference( 'widget', null, 'Widget ' . $id ), null, $properties, $user_id, false, $client_ip );
+			} else {
+				continue;
+			}
+			if ( $event ) {
+				// Keep the identifier, but don't load live widget content as core props.
+				$event->object_key = $id;
+				self::$events[ $id ] = $event;
+			}
+		}
+	}
+
+	private static function record_safe_widget_additions( string $option, array $old, array $new, $user_id, ?string $client_ip ): void {
+		$type = substr( $option, strlen( 'widget_' ) );
+		foreach ( $new as $number => $after ) {
+			if ( ! is_array( $after ) || ! isset( $after['__logify_digest'] ) || isset( $old[ $number ] ) ) {
+				continue;
+			}
+			$id = $type . '-' . $number;
+			$event = Event::create( 'Widget Created', new Object_Reference( 'widget', null, 'Widget ' . $id ), null, null, $user_id, false, $client_ip );
+			if ( $event ) {
+				// Keep the identifier, but don't load live widget content as core props.
+				$event->object_key = $id;
+				self::$events[ $id ] = $event;
 			}
 		}
 	}

@@ -1,5 +1,10 @@
 <?php
 
+// Block direct web access to this bundled dependency file.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 if ( ! function_exists( 'action_scheduler_register_3_dot_9_dot_2' ) && function_exists( 'add_action' ) ) { // WRCS: DEFINED_VERSION.
 
 	if ( ! class_exists( 'ActionScheduler_Versions', false ) ) {

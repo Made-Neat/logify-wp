@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use RuntimeException;
 
 /**
@@ -30,15 +35,15 @@ class Term_Tracker
 	public static function init()
 	{
 		// Term creation.
-		add_action('created_term', [__NAMESPACE__ . '\Async_Tracker', 'async_created_term'], 10, 4);
+		add_action('created_term', Async_Tracker::safe_callback( 'async_created_term', false ), 10, 4);
 		add_action('middle_created_term', array(__CLASS__, 'on_created_term'), 10, 6);
 
 		// Term update.
-		add_action('edit_terms', [__NAMESPACE__ . '\Async_Tracker', 'async_edit_terms'], 10, 3);
+		add_action('edit_terms', Async_Tracker::safe_callback( 'async_edit_terms', false ), 10, 3);
 		add_action('middle_edit_terms', array(__CLASS__, 'on_edit_terms'), 10, 5);
 
 		// Term deletion.
-		add_action('pre_delete_term', [__NAMESPACE__ . '\Async_Tracker', 'async_pre_delete_term'], 10, 2);
+		add_action('pre_delete_term', Async_Tracker::safe_callback( 'async_pre_delete_term', false ), 10, 2);
 		add_action('middle_pre_delete_term', array(__CLASS__, 'on_pre_delete_term'), 10, 4);
 	}
 
@@ -82,6 +87,13 @@ class Term_Tracker
 
 		// Load the term.
 		$term = Term_Utility::load($term_id);
+
+		// The term may have been deleted before this ran, which is routine for an event
+		// written asynchronously. Nothing to compare, and iterating null would be fatal.
+		if ( ! $term instanceof \WP_Term || ! isset( $term->data ) ) {
+			Debug::verbose( 'Term_Tracker: term no longer exists', $term_id );
+			return;
+		}
 
 		// Compare values.
 		$changed = false;

@@ -3,12 +3,13 @@
  * Plugin Name: Logify WP - Activity Log & User Audit Log
  * Plugin URI: https://logifywp.com
  * Description: Logify WP features advanced tracking to ensure awareness of all changes made to your WordPress website, including who made them and when.
- * Version: 1.4.0
+ * Version: 1.5.0
  * Author: Made Neat
  * Author URI: https://madeneat.com
  * Requires at least: 6.2
  * Requires PHP: 8.0
  * Text Domain: logify-wp
+ * Domain Path: /languages
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  *
@@ -44,14 +45,37 @@ if (!defined('WP_PLUGIN_DIR')) {
 // Some useful globals.
 define('LOGIFY_WP_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('LOGIFY_WP_PLUGIN_DIR', plugin_dir_path(__FILE__));
+define('LOGIFY_WP_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
-// Detect if plugin is being deleted
-$logify_wp_is_deleting = false;
-if ( isset( $_REQUEST['action'] ) && $_REQUEST['action'] === 'delete-plugin' ) {
-	if ( isset( $_REQUEST['plugin'] ) && $_REQUEST['plugin'] === plugin_basename( __FILE__ ) ) {
-		$logify_wp_is_deleting = true;
+/**
+ * Whether the current request is WordPress deleting this plugin.
+ *
+ * Used to skip loading Action Scheduler and initialising the plugin's own services during a
+ * deletion, so nothing is scheduled or written while the files are being removed.
+ *
+ * This inspects the request rather than verifying a nonce, and that is deliberate: the request
+ * is WordPress's own plugin-deletion request, whose nonce wp-admin/plugins.php verifies before
+ * it ever calls delete_plugins(). Nonce functions are not safely callable this early either,
+ * since plugins load before the current user is established. Nothing is written or processed
+ * here - the values are compared and discarded - so there is no state change to protect.
+ *
+ * @return bool True if this plugin is being deleted.
+ */
+function logify_wp_is_being_deleted(): bool {
+	// phpcs:disable WordPress.Security.NonceVerification.Recommended -- Read-only guard; see above.
+	$action = isset( $_REQUEST['action'] ) ? sanitize_key( wp_unslash( $_REQUEST['action'] ) ) : '';
+
+	if ( $action !== 'delete-plugin' ) {
+		return false;
 	}
+
+	$plugin = isset( $_REQUEST['plugin'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['plugin'] ) ) : '';
+	// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+	return $plugin === LOGIFY_WP_PLUGIN_BASENAME;
 }
+
+$logify_wp_is_deleting = logify_wp_is_being_deleted();
 
 // =================================================================================================
 // Include all classes.
@@ -66,9 +90,9 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-strings.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-types.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-urls.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-as-guard.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-sensitive-data.php';
 
 // Classes that encapsulate the core plugin data types.
-require_once LOGIFY_WP_PLUGIN_DIR . 'includes/models/class-error.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/models/class-event.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/models/class-eventmeta.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/models/class-property.php';
@@ -80,7 +104,6 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/repositories/class-event-repositor
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/repositories/class-eventmeta-repository.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/repositories/class-property-repository.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/repositories/class-note-repository.php';
-require_once LOGIFY_WP_PLUGIN_DIR . 'includes/repositories/class-error-repository.php';
 
 // Classes that provide plugin functionality.
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-access-control.php';
@@ -92,15 +115,16 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-database.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-debug.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-log-page.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-notes-page.php';
-require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-php-error-log.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-logger.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-main.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-plugin-settings.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-privacy.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-log-filters.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-export.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-as-bloat-cleaner.php';
 
 // Classes for tracking events.
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-async-tracker.php';
-require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-error-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-comment-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-core-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-media-tracker.php';
@@ -110,6 +134,7 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-post-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-term-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-theme-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-user-tracker.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-security-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-widget-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-gravityforms-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-beaverbuilder-tracker.php';

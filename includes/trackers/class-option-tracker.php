@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Class Logify_WP\Option_Tracker
  *
@@ -55,7 +60,7 @@ class Option_Tracker {
 		// Accept batch identifier plus client IP from the async callback.
 		add_action( 'middle_update_option_option', array( __CLASS__, 'on_update_option' ), 10, 6 );
 
-		add_action( 'shutdown', [ __NAMESPACE__ . '\Async_Tracker', 'async_shutdown_option' ], 10, 0 );
+		add_action( 'shutdown', Async_Tracker::safe_callback( 'async_shutdown_option', false ), 10, 0 );
 		add_action( 'middle_shutdown_option', array( __CLASS__, 'on_shutdown' ), 10, 1 );
 	}
 
@@ -95,7 +100,7 @@ class Option_Tracker {
 		self::$hooks_registered = true;
 
 		// Track settings updates - only when we know we're on a settings page.
-		add_action( 'update_option', [ __NAMESPACE__ . '\Async_Tracker', 'async_update_option_option' ], 10, 3 );
+		add_action( 'update_option', Async_Tracker::safe_callback( 'async_update_option_option', false ), 10, 3 );
 	}
 
 	/**
@@ -106,11 +111,7 @@ class Option_Tracker {
 	 * @param mixed  $new_value   The new option value.
 	 */
 	public static function on_update_option( string $batch_id, string $option_name, mixed $old_value, mixed $new_value, int $acting_user_id, ?string $client_ip = null ) {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			if ( function_exists( 'error_log' ) ) {
-				//error_log( '[Logify WP] on_update_option batch ' . $batch_id . ' for: ' . $option_name . ' | old: ' . var_export( $old_value, true ) . ' | new: ' . var_export( $new_value, true ) . ' | user: ' . $acting_user_id );
-			}
-		}
+		Debug::verbose( 'Option_Tracker::on_update_option', 'batch', $batch_id, 'option', $option_name, 'user', $acting_user_id );
 
 		self::record_option_change( $batch_id, $option_name, $old_value, $new_value, $acting_user_id, $client_ip );
 	}
@@ -129,13 +130,16 @@ class Option_Tracker {
 		global $wp_registered_settings;
 
 		if ( ! Option_Utility::should_track_option( $option_name, $old_value, $new_value ) ) {
-			if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
-				error_log( '[Logify WP] Option not a setting, skipping: ' . $option_name );
-			}
+			Debug::verbose( 'Option not a setting, skipping', $option_name );
 			return;
 		}
 
-		if ( isset( $wp_registered_settings[ $option_name ] ) && $wp_registered_settings[ $option_name ]['type'] === 'boolean' ) {
+		// Enforce the same safe snapshot policy for synchronous/direct callers.
+		if ( ! Types::are_equal( $old_value, $new_value ) ) {
+			[$old_value, $new_value] = Sensitive_Data::option_values( $option_name, $old_value, $new_value );
+		}
+
+		if ( Option_Utility::is_safe_value_option( $option_name ) && isset( $wp_registered_settings[ $option_name ] ) && $wp_registered_settings[ $option_name ]['type'] === 'boolean' ) {
 			$val     = rest_sanitize_boolean( $old_value );
 			$new_val = rest_sanitize_boolean( $new_value );
 		} else {
@@ -147,7 +151,7 @@ class Option_Tracker {
 			return;
 		}
 
-		if ( str_ends_with( $option_name, '_category' ) ) {
+		if ( Option_Utility::is_safe_value_option( $option_name ) && str_ends_with( $option_name, '_category' ) ) {
 			$val     = new Object_Reference( 'term', $val );
 			$new_val = new Object_Reference( 'term', $new_val );
 		} elseif ( $option_name === 'wp_page_for_privacy_policy' ) {
@@ -157,9 +161,7 @@ class Option_Tracker {
 
 		self::store_option_change( $batch_id, $option_name, $val, $new_val, $acting_user_id, $client_ip );
 
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
-			error_log( '[Logify WP] Queued option change for batch ' . $batch_id . ': ' . $option_name );
-		}
+		Debug::verbose( 'Queued option change', 'batch', $batch_id, 'option', $option_name );
 	}
 
 	/**

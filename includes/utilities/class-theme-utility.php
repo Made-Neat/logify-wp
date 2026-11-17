@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_Theme;
 
 /**
@@ -85,7 +90,7 @@ class Theme_Utility extends Object_Utility {
 		$name = $theme->get( 'Name' );
 		$uri  = $theme->get( 'ThemeURI' );
 		if ( $uri ) {
-			$name = "<a href='$uri' target='_blank'>$name</a>";
+			$name = "<a href='" . esc_url( $uri ) . "' target='_blank' rel='noopener noreferrer'>" . esc_html( $name ) . '</a>';
 		}
 		Property::update_array( $props, 'name', null, $name );
 
@@ -96,7 +101,7 @@ class Theme_Utility extends Object_Utility {
 		$author_uri = $theme->get( 'AuthorURI' );
 		$author     = $theme->get( 'Author' );
 		if ( $author_uri ) {
-			$author = "<a href='$author_uri ' target='_blank'>$author</a>";
+			$author = "<a href='" . esc_url( $author_uri ) . "' target='_blank' rel='noopener noreferrer'>" . esc_html( $author ) . '</a>';
 		}
 		Property::update_array( $props, 'author', null, $author );
 

@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use Theme_Upgrader;
 use WP_Theme;
 use WP_Upgrader;
@@ -25,24 +30,24 @@ class Theme_Tracker
 	public static function init()
 	{ 
 		// Load the themes pages.
-		add_action('load-themes.php', [__NAMESPACE__ . '\Async_Tracker', 'async_load_themes'], 10, 0);
-		add_action('middle_load-themes.php', array(__CLASS__, 'on_load_themes_page'), 10, 0);
-
-		add_action('load-theme-install.php', [__NAMESPACE__ . '\Async_Tracker', 'async_load_theme_install'], 10, 0);
-		add_action('middle_load-theme-install.php', array(__CLASS__, 'on_load_themes_page'), 10, 0);
+		// Capture installed theme versions before the theme-management page
+		// changes them. These snapshots are time-sensitive; a queued job can
+		// run after an update and mislabel the old version.
+		add_action('load-themes.php', array(__CLASS__, 'on_load_themes_page'), 10, 0);
+		add_action('load-theme-install.php', array(__CLASS__, 'on_load_themes_page'), 10, 0);
 
 		// Theme install and update.
-		add_action('upgrader_process_complete', [__NAMESPACE__ . '\Async_Tracker', 'async_upgrader_process_complete_theme'], 10, 2);
+		add_action('upgrader_process_complete', Async_Tracker::safe_callback( 'async_upgrader_process_complete_theme', false ), 10, 2);
 		add_action('middle_upgrader_process_complete_theme', array(__CLASS__, 'on_upgrader_process_complete'), 10, 4);
 
 		// Theme switch.
-		add_action('switch_theme', [__NAMESPACE__ . '\Async_Tracker', 'async_switch_theme'], 10, 3);
+		add_action('switch_theme', Async_Tracker::safe_callback( 'async_switch_theme', false ), 10, 3);
 		// Accept client IP as 4th arg
-		add_action('middle_switch_theme', array(__CLASS__, 'on_switch_theme'), 10, 4);
+		add_action('middle_switch_theme', array(__CLASS__, 'on_switch_theme'), 10, 5);
 
 		// Theme delete.
-		add_action('delete_theme', [__NAMESPACE__ . '\Async_Tracker', 'async_delete_theme'], 10, 2);
-		add_action('middle_delete_theme', array(__CLASS__, 'on_delete_theme'), 10, 2);
+		add_action('delete_theme', Async_Tracker::safe_callback( 'async_delete_theme', false ), 10, 2);
+		add_action('middle_delete_theme', array(__CLASS__, 'on_delete_theme'), 10, 3);
 	}
 
 	/**

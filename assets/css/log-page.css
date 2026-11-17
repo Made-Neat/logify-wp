@@ -105,13 +105,19 @@
   background-color: #f7f7f7;
 }
 #logify-wp-activity-log .logify-wp-summary-row.shown > td,
-#logify-wp-activity-log .logify-wp-summary-row.shown > th, #logify-wp-activity-log .logify-wp-summary-row:hover > td,
-#logify-wp-activity-log .logify-wp-summary-row:hover > th,
+#logify-wp-activity-log .logify-wp-summary-row.shown > th,
 #logify-wp-activity-log .logify-wp-details-row.shown > td,
 #logify-wp-activity-log .logify-wp-details-row.shown > th,
 #logify-wp-activity-log .logify-wp-details-row:hover > td,
 #logify-wp-activity-log .logify-wp-details-row:hover > th {
   background-color: white;
+}
+
+/* Hovering a row tints it with the brand green, matching the settings page. The rule above
+ * used to paint hovered rows white through an ID selector, which outranked the tint. */
+#logify-wp-activity-log .logify-wp-summary-row:hover > td,
+#logify-wp-activity-log .logify-wp-summary-row:hover > th {
+  background-color: var(--logify-brand-tint, rgba(64, 187, 120, 0.1));
 }
 #logify-wp-activity-log .logify-wp-deleted-object {
   font-style: italic;
@@ -244,31 +250,25 @@
   border-color: #bbff80;
 }
 #logify-wp-object-type-filter .logify-wp-object-type-filter-item {
-  display: inline-block;
-  padding: 0.25rem;
   border-radius: 0.25rem;
   cursor: pointer;
-  margin-right: 0.5rem;
-  width: 6rem;
   border-style: solid;
   border-width: 1px;
 }
 #logify-wp-object-type-filter .logify-wp-object-type-filter-item label {
   cursor: inherit;
 }
-#logify-wp-object-type-filter .logify-wp-object-type-filter-item:nth-child(-n+6) {
-  margin-bottom: 0.5rem;
-}
 #logify-wp-object-type-filter .logify-wp-object-type-all {
   border-color: #ddd;
-  margin-top: 0;
 }
 #logify-wp-object-type-filter .logify-wp-object-type-all:hover {
   background-color: #eee;
 }
 
 #logify-wp-object-type-checkboxes {
-  display: inline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 #logify-wp-object-type-checkboxes .logify-wp-object-type-comment:hover {
   background-color: #ebffff;
@@ -316,8 +316,10 @@
 }
 
 #logify-wp-filters {
-  border-collapse: collapse;
-  margin: 1rem 0;
+  /* The 1rem vertical margin here dates from when the filters were laid out in a table of
+     their own. Inside the panel it showed as a white band between the fields and the chip
+     bar below them. */
+  margin: 0;
   background-color: #f7f7f7;
 }
 #logify-wp-filters td {
@@ -327,7 +329,7 @@
   vertical-align: top;
 }
 #logify-wp-filters .logify-wp-filter-label {
-  margin-bottom: 0.25rem;
+  margin-bottom: 6px;
 }
 #logify-wp-filters .hasDatepicker {
   background-image: url("../images/calendar.png");
@@ -350,17 +352,25 @@
   background-size: 0.75rem 0.75rem;
 }
 
+/* Every control fills its grid column. These are ID selectors because the rule they replace
+ * was one too: a fixed 20rem width from the days when the filters were laid out in a table. */
 #logify-wp-search-filter,
 #logify-wp-post-type-filter,
 #logify-wp-taxonomy-filter,
 #logify-wp-user-filter,
 #logify-wp-role-filter,
-#logify-wp-event-type-filter {
-  width: 20rem;
+#logify-wp-event-type-filter,
+#logify-wp-start-date,
+#logify-wp-end-date {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 #logify-wp-reset-filters-wrapper {
-  margin: 1rem 0;
+  /* The actions row is a grid item now; its spacing comes from the grid gap. The old 1rem
+     margin was the second half of the white band under the filters. */
+  margin: 0;
 }
 
 button.ui-button.ui-corner-all.ui-widget.ui-button-icon-only.ui-dialog-titlebar-close {
@@ -467,4 +477,1221 @@ body .ui-dialog .ui-dialog-title {
 .logify-wp-no-note {
   color: #999;
   font-style: italic;
+}
+/* =============================================================================================
+ * Events log screen — 1.5.0 layout
+ *
+ * Brand tokens match the settings page: #40bb78 for decoration, the darker green for anything
+ * that has to be legible (white on #40bb78 is only 2.44:1).
+ * ============================================================================================= */
+/* Tokens are declared on :root, not on .logify-wp-log.
+ *
+ * jQuery UI's dialog detaches #edit-note-modal and appends it to <body>, so inside the dialog
+ * any token scoped to .logify-wp-log resolved to nothing. A var() that cannot resolve makes the
+ * whole declaration invalid at computed-value time, so `background: var(--logify-brand-dark, #1b8250)`
+ * fell back to transparent while `color: #fff` stood - which is why the "Save note" button was
+ * white text on a white dialog and appeared to be missing entirely. Every var() below also
+ * carries a literal fallback, so a single scoping mistake can never hide a control again. */
+:root {
+	--logify-brand: #40bb78;
+	--logify-brand-dark: #1b8250;
+	--logify-brand-darker: #16693f;
+	--logify-brand-tint: rgba(64, 187, 120, 0.1);
+	--logify-border: #dcdcde;
+	--logify-text-muted: #50575e;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Filter panel
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-filters-panel {
+	margin: 16px 0 0;
+	background: #fff;
+	border: 1px solid var(--logify-border, #dcdcde);
+	border-top: 3px solid var(--logify-brand, #40bb78);
+	border-bottom: 0;
+	border-radius: 6px 6px 0 0;
+}
+
+.logify-wp-filters-summary {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 16px;
+	cursor: pointer;
+	list-style: none;
+	font-size: 13px;
+}
+
+/* Keep a visible marker without relying on the browser default triangle. */
+.logify-wp-filters-summary::-webkit-details-marker {
+	display: none;
+}
+
+.logify-wp-filters-summary::before {
+	content: "";
+	flex: 0 0 auto;
+	width: 0;
+	height: 0;
+	border-left: 6px solid #50575e;
+	border-top: 5px solid transparent;
+	border-bottom: 5px solid transparent;
+	transition: transform 0.15s ease;
+}
+
+.logify-wp-filters-panel[open] > .logify-wp-filters-summary::before {
+	transform: rotate(90deg);
+}
+
+.logify-wp-filters-summary:focus-visible {
+	outline: 2px solid var(--logify-brand-dark, #1b8250);
+	outline-offset: -2px;
+}
+
+.logify-wp-filters-summary__label {
+	font-weight: 600;
+}
+
+.logify-wp-active-filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	min-width: 0;
+}
+
+.logify-wp-filter-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding: 2px 2px 2px 8px;
+	border-radius: 10px;
+	background: var(--logify-brand-tint, rgba(64, 187, 120, 0.1));
+	border: 1px solid rgba(27, 130, 80, 0.25);
+	font-size: 12px;
+	line-height: 1.6;
+	max-width: 340px;
+}
+
+.logify-wp-filter-chip__text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+}
+
+/* The remove control is a real button: reachable by keyboard, with an accessible name that
+ * says what it does rather than just showing a cross. */
+.logify-wp-filter-chip__remove {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: #1b8250;
+	font-size: 15px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.logify-wp-filter-chip__remove:hover,
+.logify-wp-filter-chip__remove:focus {
+	background: rgba(27, 130, 80, 0.18);
+	color: #16693f;
+}
+
+.logify-wp-filter-chip__remove:focus-visible {
+	outline: 2px solid var(--logify-brand-dark, #1b8250);
+	outline-offset: 1px;
+}
+
+/* The chip bar sits directly under the filter panel and stays visible whether the panel is
+ * open or closed, so a collapsed panel never hides what is being filtered. */
+.logify-wp-active-filters-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 16px;
+	padding: 10px 16px;
+	background: #fbfbfc;
+	border: 1px solid var(--logify-border, #dcdcde);
+	border-top: 1px solid #f0f0f1;
+	border-radius: 0 0 6px 6px;
+	font-size: 12px;
+	min-height: 40px;
+	box-sizing: border-box;
+}
+
+.logify-wp-active-filters-bar__label {
+	font-weight: 600;
+	color: var(--logify-text-muted, #50575e);
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+}
+
+.logify-wp-active-filters__none {
+	color: var(--logify-text-muted, #50575e);
+	font-size: 12px;
+}
+
+/* A responsive grid replaces the fixed three-column table the filters used to sit in. */
+/* A 12-column grid so the fields can be given widths that suit what goes in them, rather than
+ * every filter being the same size regardless of its content. */
+.logify-wp-filters-grid {
+	display: grid;
+	grid-template-columns: repeat(12, minmax(0, 1fr));
+	gap: 16px;
+	padding: 4px 16px 18px;
+	border-top: 1px solid #f0f0f1;
+}
+
+.logify-wp-filters-grid > * {
+	grid-column: span 12;
+	min-width: 0;
+}
+
+/* Spans add up to exactly twelve on every row at every breakpoint, so there is never a ragged
+ * edge, and related fields stay together: what you searched for, then who did it, then what
+ * kind of thing it was. */
+@media screen and (min-width: 783px) {
+	.logify-wp-filter-group--search {
+		grid-column: span 12;
+	}
+
+	.logify-wp-filter-group--date,
+	.logify-wp-filter-group--event-type,
+	.logify-wp-filter-group--user,
+	.logify-wp-filter-group--role,
+	.logify-wp-filter-group--post-type,
+	.logify-wp-filter-group--taxonomy {
+		grid-column: span 6;
+	}
+
+	.logify-wp-filter-group--object-types {
+		grid-column: span 12;
+	}
+}
+
+@media screen and (min-width: 1200px) {
+	/* Row 1: what happened and when. Row 2: who and to what kind of thing.
+	 * Row 3: the object types, which need the full width. */
+	.logify-wp-filter-group--search {
+		grid-column: span 5;
+	}
+
+	.logify-wp-filter-group--date {
+		grid-column: span 4;
+	}
+
+	.logify-wp-filter-group--event-type {
+		grid-column: span 3;
+	}
+
+	.logify-wp-filter-group--user,
+	.logify-wp-filter-group--role,
+	.logify-wp-filter-group--post-type,
+	.logify-wp-filter-group--taxonomy {
+		grid-column: span 3;
+	}
+
+	.logify-wp-filter-group--object-types {
+		grid-column: span 12;
+	}
+}
+
+.logify-wp-filters-grid .logify-wp-filter-label {
+	display: block;
+	/* A fixed height so that a one-line and a two-line label still leave their controls on the
+	 * same baseline. */
+	min-height: 18px;
+	margin: 0 0 6px;
+	font-weight: 600;
+	font-size: 12px;
+	line-height: 18px;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--logify-text-muted, #50575e);
+}
+
+.logify-wp-filters-grid .logify-wp-filter input[type="search"],
+.logify-wp-filters-grid .logify-wp-filter select {
+	width: 100%;
+	max-width: 100%;
+}
+
+.logify-wp-filter--dates {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.logify-wp-filter--dates input {
+	min-width: 0;
+	flex: 1 1 0;
+}
+
+.logify-wp-filter-hint {
+	margin: 4px 0 0;
+	font-size: 12px;
+	color: var(--logify-text-muted, #50575e);
+}
+
+.logify-wp-object-types {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+}
+
+.logify-wp-object-type-checkboxes {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.logify-wp-filter-actions {
+	grid-column: 1 / -1;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Table rows as disclosures
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-log .logify-wp-summary-row {
+	cursor: pointer;
+}
+
+.logify-wp-log .logify-wp-summary-row:hover {
+	background: var(--logify-brand-tint, rgba(64, 187, 120, 0.1));
+}
+
+.logify-wp-log .logify-wp-summary-row:focus-visible {
+	outline: 2px solid var(--logify-brand-dark, #1b8250);
+	outline-offset: -2px;
+}
+
+.logify-wp-log .logify-wp-summary-row.shown > td {
+	border-bottom-color: transparent;
+	font-weight: 600;
+}
+
+/* The open details pane reads as attached to its row, and its own text is selectable
+ * without the row collapsing. */
+.logify-wp-log .logify-wp-details-row > td {
+	border-left: 3px solid var(--logify-brand, #40bb78);
+	background: #fbfbfc;
+	cursor: auto;
+	user-select: text;
+}
+
+.logify-wp-table-hint {
+	margin: 8px 0 16px;
+	color: var(--logify-text-muted, #50575e);
+}
+
+.logify-wp-screen-options legend {
+	font-weight: 600;
+	padding: 0 0 4px;
+}
+
+.logify-wp-screen-options .description {
+	margin: 0 0 6px;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Note dialog
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-note-dialog.ui-dialog {
+	padding: 0;
+	border: 1px solid var(--logify-border, #dcdcde);
+	border-radius: 6px;
+	box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+}
+
+.logify-wp-note-dialog .ui-dialog-titlebar {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	background: #fff;
+	border: 0;
+	border-bottom: 1px solid var(--logify-border, #dcdcde);
+	border-radius: 6px 6px 0 0;
+	padding: 10px 10px 10px 18px;
+}
+
+.logify-wp-note-dialog .ui-dialog-title {
+	float: none;
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+}
+
+/* The close control sat immediately after the title text and was a small target. It is now
+ * pinned to the right of the titlebar at 36x36, which clears the 24px minimum comfortably. */
+.logify-wp-note-dialog .ui-dialog-titlebar-close {
+	position: static;
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	cursor: pointer;
+	color: #50575e;
+}
+
+.logify-wp-note-dialog .ui-dialog-titlebar-close:hover,
+.logify-wp-note-dialog .ui-dialog-titlebar-close:focus {
+	background: #f0f0f1;
+	color: #1d2327;
+}
+
+.logify-wp-note-dialog .ui-dialog-titlebar-close:focus-visible {
+	outline: 2px solid var(--logify-brand-dark, #1b8250);
+	outline-offset: -2px;
+}
+
+/* Replace the jQuery UI sprite with a dashicon, which stays crisp and inherits colour. */
+.logify-wp-note-dialog .ui-dialog-titlebar-close .ui-icon {
+	width: 20px;
+	height: 20px;
+	margin: 0;
+	background: none;
+	text-indent: 0;
+	overflow: visible;
+}
+
+.logify-wp-note-dialog .ui-dialog-titlebar-close .ui-icon::before {
+	content: "\f158";
+	font: normal 20px/1 dashicons;
+	display: block;
+	-webkit-font-smoothing: antialiased;
+}
+
+.logify-wp-note-form {
+	padding: 16px 18px 18px;
+	max-width: 100%;
+}
+
+.logify-wp-note-form__hint {
+	margin: 0 0 12px;
+	color: var(--logify-text-muted, #50575e);
+	font-size: 13px;
+}
+
+.logify-wp-note-form__editor {
+	margin-bottom: 12px;
+}
+
+.logify-wp-note-form__messages:not(:empty) {
+	margin-bottom: 12px;
+}
+
+.logify-wp-note-form__messages .notice {
+	margin: 0;
+}
+
+.logify-wp-note-form__actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-top: 16px;
+	padding-top: 14px;
+	border-top: 1px solid #f0f0f1;
+}
+
+/* The rightmost control sits flush with the editor above it. */
+.logify-wp-note-form__actions > :last-child {
+	margin-right: 0;
+}
+
+.logify-wp-note-form__context {
+	margin: 0 0 12px;
+	padding: 10px 12px;
+	border-left: 3px solid var(--logify-brand, #40bb78);
+	background: var(--logify-brand-tint, rgba(64, 187, 120, 0.1));
+	border-radius: 3px;
+}
+
+.logify-wp-note-form__context p {
+	margin: 0;
+}
+
+.logify-wp-note-form__context-event {
+	font-weight: 600;
+	font-size: 13px;
+}
+
+.logify-wp-note-form__context-meta {
+	margin-top: 2px;
+	font-size: 12px;
+	color: var(--logify-text-muted, #50575e);
+}
+
+.logify-wp-note-form__spacer {
+	flex: 1 1 auto;
+}
+
+.logify-wp-note-form__delete {
+	color: #b32d2e;
+	text-decoration: underline;
+}
+
+.logify-wp-note-form__delete:hover,
+.logify-wp-note-form__delete:focus {
+	color: #8f2424;
+}
+
+.logify-wp-note-form .button-primary {
+	background: var(--logify-brand-dark, #1b8250);
+	border-color: var(--logify-brand-dark, #1b8250);
+	color: #fff;
+	text-shadow: none;
+}
+
+.logify-wp-note-form .button-primary:hover,
+.logify-wp-note-form .button-primary:focus {
+	background: #16693f;
+	border-color: #16693f;
+	color: #fff;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Small screens
+ * ------------------------------------------------------------------------------------------- */
+@media screen and (max-width: 782px) {
+	.logify-wp-filters-grid {
+		grid-template-columns: 1fr;
+	}
+
+	.logify-wp-filter-chip {
+		max-width: 100%;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.logify-wp-filters-summary::before {
+		transition: none;
+	}
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Loading state
+ *
+ * One element, one message. The dimming is done by the wrapper's ::after so that the
+ * .dt-processing element itself can be the card, rendering DataTables' own text rather than a
+ * duplicate of it via content: attr().
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-table-wrapper {
+	position: relative;
+}
+
+.logify-wp-table-wrapper.is-loading::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 9;
+	background: rgba(255, 255, 255, 0.7);
+	pointer-events: none;
+}
+
+.logify-wp-table-wrapper div.dt-processing {
+	position: absolute;
+	top: 80px;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 10;
+	margin: 0;
+	width: auto;
+	max-width: 90%;
+	height: auto;
+	padding: 10px 18px;
+	border: 1px solid var(--logify-border, #dcdcde);
+	border-left: 4px solid var(--logify-brand, #40bb78);
+	border-radius: 4px;
+	background: #fff;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+	font-size: 13px;
+	font-weight: 600;
+	color: #1d2327;
+	text-align: center;
+}
+
+/* DataTables' animated bars; the text alone is clearer. */
+.logify-wp-table-wrapper div.dt-processing > div {
+	display: none;
+}
+
+.logify-wp-table-wrapper.is-loading table {
+	opacity: 0.55;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Pagination
+ *
+ * Styled to match WordPress's own tablenav controls, with targets large enough to hit and a
+ * "go to page" field, which DataTables does not provide.
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-log .dt-container .dt-paging {
+	margin-top: 12px;
+}
+
+/* Identical to a WordPress secondary button - the same treatment as "Reset all filters" and
+ * "Export CSV" at the top of the screen - so the whole page uses one button style. */
+.logify-wp-log .dt-container .dt-paging .dt-paging-button,
+.logify-wp-log .logify-wp-page-go {
+	min-width: 30px;
+	margin: 0;
+	padding: 0 9px;
+	border: 1px solid #2271b1;
+	border-radius: 3px;
+	background: #f6f7f7;
+	color: #2271b1;
+	box-shadow: none;
+	text-shadow: none;
+	text-decoration: none;
+	cursor: pointer;
+	text-align: center;
+	white-space: nowrap;
+}
+
+/* The ellipsis is not a control. */
+.logify-wp-log .dt-container .dt-paging .dt-paging-button.ellipsis {
+	border-color: transparent;
+	background: transparent;
+	color: var(--logify-text-muted, #50575e);
+	cursor: default;
+	min-width: 20px;
+}
+
+/* DataTables' own rule is `color: white !important` on hover, which combined with a light
+ * background left white-on-near-white text. The colour is forced back, and the hover state now
+ * uses the brand green with white text at 4.8:1 so it is unambiguous and legible. */
+/* WordPress's own secondary-button hover. DataTables forces `color: white !important` on
+ * hover, which is why this has to be forced back. */
+.logify-wp-log .dt-container .dt-paging .dt-paging-button:hover:not(.disabled):not(.current),
+.logify-wp-log .dt-container .dt-paging .dt-paging-button:focus:not(.disabled):not(.current),
+.logify-wp-log .logify-wp-page-go:hover,
+.logify-wp-log .logify-wp-page-go:focus {
+	background: #f0f0f1 !important;
+	border-color: #0a4b78 !important;
+	color: #0a4b78 !important;
+	text-decoration: none;
+}
+
+/* The current page is the filled version of the same button. */
+.logify-wp-log .dt-container .dt-paging .dt-paging-button.current,
+.logify-wp-log .dt-container .dt-paging .dt-paging-button.current:hover,
+.logify-wp-log .dt-container .dt-paging .dt-paging-button.current:focus {
+	background: #2271b1 !important;
+	border-color: #2271b1 !important;
+	color: #fff !important;
+	font-weight: 600;
+}
+
+.logify-wp-log .dt-container .dt-paging .dt-paging-button:focus-visible {
+	outline: 2px solid var(--logify-brand-dark, #1b8250);
+	outline-offset: 1px;
+}
+
+.logify-wp-log .dt-container .dt-paging .dt-paging-button.current,
+.logify-wp-log .dt-container .dt-paging .dt-paging-button.current:hover {
+	background: var(--logify-brand-dark, #1b8250);
+	border-color: var(--logify-brand-dark, #1b8250);
+	color: #fff;
+	font-weight: 600;
+}
+
+/* Unavailable, not invisible: #787c82 on #f6f7f7 is around 4.1:1, so a disabled control can
+ * still be read and understood rather than disappearing into the background. */
+/* Unavailable, not invisible: #787c82 on #f6f7f7 is around 4.1:1. */
+.logify-wp-log .dt-container .dt-paging .dt-paging-button.disabled,
+.logify-wp-log .dt-container .dt-paging .dt-paging-button.disabled:hover,
+.logify-wp-log .dt-container .dt-paging .dt-paging-button.disabled:focus {
+	background: #f6f7f7 !important;
+	border-color: #c3c4c7 !important;
+	color: #787c82 !important;
+	cursor: default;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Table navigation bar
+ *
+ * The entry count, the page jump and the page buttons now sit in one bar with a single
+ * background, one set of paddings and controls of matching height. DataTables puts each of
+ * them in its own layout row, which is why they previously had different widths, spacing and
+ * alignment; JavaScript moves them into this container once.
+ * ------------------------------------------------------------------------------------------- */
+/* The bar is the layout row DataTables renders, styled in place. Nothing is relocated. */
+.logify-wp-log .logify-wp-tablenav {
+	display: flex;
+	flex-wrap: wrap;
+	max-width: 100%;
+	box-sizing: border-box;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px 20px;
+	margin: 12px 0 20px;
+	padding: 10px 14px;
+	background: #fff;
+	border: 1px solid var(--logify-border, #dcdcde);
+	border-radius: 6px;
+	font-size: 13px;
+}
+
+/* DataTables' own cells inside that row: strip their spacing so the bar controls it. */
+.logify-wp-log .logify-wp-tablenav > .dt-layout-cell {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 16px;
+	margin: 0;
+	padding: 0;
+	float: none;
+	width: auto;
+	min-width: 0;
+}
+
+/* The count takes what it needs; the controls keep together and sit to the right. When there
+ * is not enough room the controls wrap to their own line, and the page buttons wrap within
+ * that line, rather than forcing the bar wider than the screen. */
+/* The count is the least important thing in this bar, so it is the thing that gives way: it
+ * shrinks, and wraps to its own line before the pagination does. */
+.logify-wp-log .logify-wp-tablenav > .dt-layout-cell:first-child {
+	flex: 1 1 auto;
+	min-width: 0;
+	order: 1;
+}
+
+.logify-wp-log .logify-wp-tablenav > .dt-layout-cell:last-child {
+	flex: 0 0 auto;
+	margin-left: auto;
+	justify-content: flex-end;
+	order: 2;
+}
+
+.logify-wp-log .logify-wp-tablenav .dt-info {
+	margin: 0;
+	padding: 0;
+	color: var(--logify-text-muted, #50575e);
+}
+
+.logify-wp-pagination-jump {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	color: var(--logify-text-muted, #50575e);
+	white-space: nowrap;
+}
+
+/* Every control in the bar is the same height, so nothing looks bolted on. */
+.logify-wp-log .logify-wp-page-input,
+.logify-wp-log .logify-wp-page-go,
+.logify-wp-log .dt-container .dt-paging .dt-paging-button {
+	height: 30px;
+	min-height: 30px;
+	box-sizing: border-box;
+	font-size: 13px;
+	line-height: 28px;
+	border-radius: 3px;
+}
+
+.logify-wp-log .logify-wp-page-input {
+	width: 64px;
+	margin: 0;
+	padding: 0 6px;
+	border: 1px solid #8c8f94;
+	text-align: center;
+}
+
+.logify-wp-log .logify-wp-page-go:focus-visible,
+.logify-wp-log .logify-wp-page-input:focus-visible {
+	outline: 2px solid var(--logify-brand-dark, #1b8250);
+	outline-offset: 1px;
+}
+
+.logify-wp-pagination-total {
+	white-space: nowrap;
+}
+
+.logify-wp-log .dt-container .dt-paging {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 4px;
+	margin: 0;
+	padding: 0;
+	max-width: 100%;
+	min-width: 0;
+}
+
+/* DataTables sizes some of its containers in ems; none of them may exceed the bar. */
+.logify-wp-log .dt-container,
+.logify-wp-log .dt-container .dt-layout-row {
+	max-width: 100%;
+	box-sizing: border-box;
+}
+
+@media screen and (max-width: 782px) {
+	.logify-wp-log .dt-container .dt-paging .dt-paging-button {
+		min-width: 40px;
+		min-height: 40px;
+		line-height: 38px;
+	}
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Table width
+ *
+ * The table now fills its container, matching the filter panel above it, instead of being
+ * sized by DataTables from whatever happened to be in the current page of results.
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-table-wrapper {
+	background: #fff;
+	border: 1px solid var(--logify-border, #dcdcde);
+	/* The same green rule as the filter panel above, so the two cards read as a pair. */
+	border-top: 3px solid var(--logify-brand, #40bb78);
+	border-radius: 6px;
+	padding: 0;
+	/* Not overflow-x here. The pagination bar is inside this element, so scrolling the whole
+	 * wrapper put a horizontal scrollbar under the pagination and moved it sideways with the
+	 * table. Only the row holding the table scrolls - see below. */
+	overflow: visible;
+}
+
+/* The row DataTables renders the table into is the only thing that scrolls sideways. */
+.logify-wp-log .dt-layout-table,
+.logify-wp-log .dt-layout-table > .dt-layout-cell {
+	overflow-x: auto;
+	max-width: 100%;
+	margin: 0;
+}
+
+.logify-wp-table-wrapper .dt-container,
+.logify-wp-log table#logify-wp-activity-log {
+	width: 100% !important;
+	max-width: 100%;
+	margin: 0;
+	box-sizing: border-box;
+}
+
+.logify-wp-log table#logify-wp-activity-log {
+	table-layout: fixed;
+	border: 0;
+}
+
+/* Column widths in CSS, so they do not move between draws. */
+.logify-wp-log #logify-wp-activity-log .column-id { width: 70px; }
+.logify-wp-log #logify-wp-activity-log .column-date { width: 15%; }
+.logify-wp-log #logify-wp-activity-log .column-user { width: 12%; }
+.logify-wp-log #logify-wp-activity-log .column-ip { width: 10%; }
+.logify-wp-log #logify-wp-activity-log .column-event { width: 16%; }
+.logify-wp-log #logify-wp-activity-log .column-object { width: auto; }
+.logify-wp-log #logify-wp-activity-log .column-notes { width: 18%; }
+.logify-wp-log #logify-wp-activity-log .column-actions { width: 110px; }
+
+.logify-wp-log #logify-wp-activity-log > tbody > tr > td {
+	overflow-wrap: anywhere;
+}
+
+.logify-wp-log .dt-container .dt-info {
+	padding: 10px 12px;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Expanded row details
+ *
+ * Sections used to be inline-blocks with widths fixed in rem, so a long value overflowed, a
+ * short one left a gap, and nested before/after tables ended up in their own scroll box. They
+ * are now cards on a flexible row that wrap to the available width.
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-log .logify-wp-details {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 16px;
+	align-items: flex-start;
+	margin: 0;
+	padding: 16px;
+}
+
+.logify-wp-log .logify-wp-details .logify-wp-details-section {
+	display: block;
+	margin-left: 0;
+	flex: 1 1 320px;
+	min-width: 0;
+	max-width: 100%;
+	padding: 12px 14px 14px;
+	background: #fff;
+	border: 1px solid var(--logify-border, #dcdcde);
+	border-radius: 5px;
+	box-sizing: border-box;
+}
+
+/* Before/after comparisons need the extra room. */
+.logify-wp-log .logify-wp-details .logify-wp-properties-section {
+	flex: 2 1 520px;
+}
+
+.logify-wp-log .logify-wp-details .logify-wp-details-section h4 {
+	margin: 0 0 8px;
+	padding: 0 0 8px;
+	border-bottom: 1px solid #f0f0f1;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+/* No inner scroll box; long content wraps instead. */
+.logify-wp-log .logify-wp-details .logify-wp-details-table-wrapper {
+	max-height: none;
+	overflow: visible;
+}
+
+.logify-wp-log .logify-wp-details .logify-wp-details-table {
+	width: 100%;
+	table-layout: fixed;
+	border-collapse: collapse;
+	font-size: 13px;
+}
+
+/* Widths as percentages, replacing the fixed rem values. */
+.logify-wp-log .logify-wp-details .logify-wp-details-table > tbody > tr > th {
+	width: 30%;
+	padding: 6px 10px 6px 0;
+	text-align: left;
+	font-weight: 600;
+	color: var(--logify-text-muted, #50575e);
+	vertical-align: top;
+	overflow-wrap: anywhere;
+}
+
+.logify-wp-log .logify-wp-details .logify-wp-details-table > tbody > tr > td {
+	width: auto;
+	padding: 6px 0;
+	vertical-align: top;
+	background: transparent;
+	overflow-wrap: anywhere;
+}
+
+.logify-wp-log .logify-wp-details .logify-wp-details-table > tbody > tr + tr > th,
+.logify-wp-log .logify-wp-details .logify-wp-details-table > tbody > tr + tr > td {
+	border-top: 1px solid #f0f0f1;
+}
+
+/* Three-column before/after. */
+.logify-wp-log .logify-wp-details .logify-wp-properties-table-3-column > tbody > tr > th {
+	width: 22%;
+}
+
+.logify-wp-log .logify-wp-details .logify-wp-properties-table-3-column > tbody > tr > td {
+	width: 39%;
+	padding-right: 10px;
+}
+
+.logify-wp-log .logify-wp-details .logify-wp-properties-table > tbody > tr:first-child > th {
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+}
+
+.logify-wp-log .logify-wp-details .logify-wp-value-unchanged {
+	color: var(--logify-text-muted, #50575e);
+}
+
+/* Nested tables - an array value rendered inside a cell - were tables inside tables inside a
+ * scroll box. Flattened to a light key/value list that wraps. */
+.logify-wp-log .logify-wp-details td > table {
+	width: 100%;
+	table-layout: fixed;
+	border-collapse: collapse;
+	margin: 0;
+	font-size: 12px;
+	background: #fbfbfc;
+	border: 1px solid #f0f0f1;
+	border-radius: 3px;
+}
+
+.logify-wp-log .logify-wp-details td > table th {
+	width: 45%;
+	padding: 4px 8px;
+	font-weight: 500;
+	color: var(--logify-text-muted, #50575e);
+	text-align: left;
+	vertical-align: top;
+	overflow-wrap: anywhere;
+}
+
+.logify-wp-log .logify-wp-details td > table td {
+	padding: 4px 8px;
+	vertical-align: top;
+	overflow-wrap: anywhere;
+}
+
+.logify-wp-log .logify-wp-details td > table tr + tr th,
+.logify-wp-log .logify-wp-details td > table tr + tr td {
+	border-top: 1px solid #f0f0f1;
+}
+
+/* Long unbroken strings - file paths, hashes, user agents - must not force a horizontal
+ * scrollbar across the whole pane. */
+.logify-wp-log .logify-wp-details a,
+.logify-wp-log .logify-wp-details code {
+	overflow-wrap: anywhere;
+}
+
+@media screen and (max-width: 960px) {
+	.logify-wp-log .logify-wp-details .logify-wp-details-section,
+	.logify-wp-log .logify-wp-details .logify-wp-properties-section {
+		flex: 1 1 100%;
+	}
+
+	/* Two-column tables stack into label-above-value pairs. */
+	.logify-wp-log .logify-wp-details .logify-wp-details-table:not(.logify-wp-properties-table-3-column),
+	.logify-wp-log .logify-wp-details .logify-wp-details-table:not(.logify-wp-properties-table-3-column) > tbody > tr > th,
+	.logify-wp-log .logify-wp-details .logify-wp-details-table:not(.logify-wp-properties-table-3-column) > tbody > tr > td {
+		display: block;
+		width: 100%;
+	}
+
+	.logify-wp-log .logify-wp-details .logify-wp-details-table:not(.logify-wp-properties-table-3-column) > tbody > tr > th {
+		padding-bottom: 0;
+		border-top: 0;
+	}
+
+	.logify-wp-log .logify-wp-details .logify-wp-details-table:not(.logify-wp-properties-table-3-column) > tbody > tr + tr > th {
+		margin-top: 8px;
+		padding-top: 8px;
+		border-top: 1px solid #f0f0f1;
+	}
+
+	.logify-wp-log .logify-wp-details .logify-wp-details-table:not(.logify-wp-properties-table-3-column) > tbody > tr + tr > td {
+		border-top: 0;
+	}
+
+	/* The before/after table keeps its columns and scrolls if it has to. */
+	.logify-wp-log .logify-wp-details .logify-wp-properties-section .logify-wp-details-table-wrapper {
+		overflow-x: auto;
+	}
+
+	.logify-wp-log .logify-wp-details .logify-wp-properties-table-3-column {
+		min-width: 420px;
+	}
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Export and empty states
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-export-hint {
+	font-size: 12px;
+	color: var(--logify-text-muted, #50575e);
+}
+
+.logify-wp-empty-notice {
+	margin: 0 0 12px;
+}
+
+.logify-wp-empty-notice .button-link {
+	margin-left: 6px;
+	color: var(--logify-brand-dark, #1b8250);
+	text-decoration: underline;
+}
+
+@media screen and (max-width: 782px) {
+	.logify-wp-tablenav {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+
+	.logify-wp-tablenav__controls {
+		margin-left: 0;
+		width: 100%;
+	}
+
+	.logify-wp-log .logify-wp-page-input,
+	.logify-wp-log .logify-wp-page-go,
+	.logify-wp-log .dt-container .dt-paging .dt-paging-button {
+		height: 36px;
+		min-height: 36px;
+		line-height: 34px;
+	}
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Object type filter boxes
+ *
+ * Each box is a <label> wrapping its own checkbox, so the whole box is one click target and
+ * the checkbox lines up with the text. An earlier version positioned the checkbox absolutely,
+ * which is why it sat above the label's baseline.
+ * ------------------------------------------------------------------------------------------- */
+#logify-wp-object-type-filter .logify-wp-object-type-filter-item,
+.logify-wp-log .logify-wp-object-type-filter-item {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+	padding: 6px 12px;
+	cursor: pointer;
+	line-height: 1.4;
+	user-select: none;
+}
+
+#logify-wp-object-type-filter .logify-wp-object-type-filter-item input[type="checkbox"],
+.logify-wp-log .logify-wp-object-type-filter-item input[type="checkbox"] {
+	position: static;
+	flex: 0 0 auto;
+	margin: 0;
+	cursor: pointer;
+}
+
+.logify-wp-log .logify-wp-object-type-filter-item span {
+	display: inline-block;
+}
+
+.logify-wp-log .logify-wp-object-type-filter-item:hover {
+	filter: brightness(0.97);
+}
+
+.logify-wp-log .logify-wp-object-type-filter-item:focus-within {
+	outline: 2px solid var(--logify-brand-dark, #1b8250);
+	outline-offset: 2px;
+}
+
+/* All boxes share one height, whichever line they wrap onto. */
+#logify-wp-object-type-filter .logify-wp-object-types,
+#logify-wp-object-type-filter #logify-wp-object-type-checkboxes {
+	align-items: stretch;
+}
+
+#logify-wp-object-type-filter .logify-wp-object-type-filter-item {
+	min-height: 34px;
+	box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Filter field details
+ * ------------------------------------------------------------------------------------------- */
+
+/* Every field has the same internal structure - a label of fixed height, then its control -
+ * so that fields in the same row line up regardless of what kind of control they hold. */
+.logify-wp-filters-grid .logify-wp-filter-group {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+}
+
+.logify-wp-filters-grid .logify-wp-filter {
+	margin: 0;
+}
+
+.logify-wp-log .logify-wp-filters-grid input[type="search"],
+.logify-wp-log .logify-wp-filters-grid input[type="text"],
+.logify-wp-log .logify-wp-filters-grid select {
+	height: 34px;
+	min-height: 34px;
+	box-sizing: border-box;
+	margin: 0;
+	line-height: 1.4;
+}
+
+/* The hint sits in normal flow beneath its field. It used to be positioned absolutely to stop
+ * it adding height, which made it overlap the label of whatever field came next. Grid rows
+ * size themselves to their tallest item, so a hint simply makes its row slightly taller and
+ * nothing else moves. */
+.logify-wp-filters-grid .logify-wp-filter-hint {
+	position: static;
+	margin: 6px 0 0;
+}
+
+/* From/to sit either side of the word "to", each taking half the space. */
+.logify-wp-filter--dates {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.logify-wp-filter--dates input {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.logify-wp-filter--dates span {
+	flex: 0 0 auto;
+	color: var(--logify-text-muted, #50575e);
+}
+
+/* The action row reads as one line: buttons together, explanation after them. */
+.logify-wp-filter-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+	padding-top: 4px;
+	border-top: 1px solid #f0f0f1;
+	margin-top: 4px;
+}
+
+.logify-wp-filter-actions .logify-wp-export-hint {
+	flex: 1 1 240px;
+	min-width: 0;
+}
+
+.logify-wp-filter-group--object-types .logify-wp-object-types {
+	padding-top: 0;
+	margin: 0;
+}
+
+/* The "All" box and the type boxes are one continuous set, not two groups. */
+.logify-wp-filter-group--object-types .logify-wp-object-types,
+.logify-wp-filter-group--object-types #logify-wp-object-type-checkboxes {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: stretch;
+	gap: 6px;
+}
+
+.logify-wp-filter-group--object-types #logify-wp-object-type-checkboxes {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+/* No border above the first header row: it drew a pale line directly under the green rule. */
+.logify-wp-log table#logify-wp-activity-log > thead > tr:first-child > th {
+	border-top: 0;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Notes log
+ *
+ * The Notes screen uses the same markup and the same stylesheet as the events log; only its
+ * column widths differ.
+ * ------------------------------------------------------------------------------------------- */
+.logify-wp-notes #logify-wp-activity-log .column-id { width: 70px; }
+.logify-wp-notes #logify-wp-activity-log .column-date { width: 18%; }
+.logify-wp-notes #logify-wp-activity-log .column-user { width: 16%; }
+.logify-wp-notes #logify-wp-activity-log .column-note { width: auto; }
+.logify-wp-notes #logify-wp-activity-log .column-event-id { width: 10%; }
+.logify-wp-notes #logify-wp-activity-log .column-actions { width: 90px; }
+
+/* No expandable details on this screen, so rows are not disclosure controls. */
+.logify-wp-notes #logify-wp-activity-log > tbody > tr {
+	cursor: default;
+}
+
+/* An author rule beats the browser's [hidden] rule, and WordPress's .notice sets
+ * display: block. Without this the empty object-type warning occupies space on every load. */
+.logify-wp-log .logify-wp-empty-notice[hidden] {
+	display: none !important;
 }

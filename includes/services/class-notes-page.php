@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use DateTime;
 use DateTimeZone;
 
@@ -33,52 +38,69 @@ class Notes_Page {
 
 		// A valid nonce proves intent, not authorization. Without this, any logged-in
 		// user who obtained a nonce could write to the audit log's annotations.
-		if ( ! Access_Control::can_access_log_page() ) {
-			wp_send_json_error( array( 'message' => 'You do not have permission to do this.' ), 403 );
+		if ( ! Access_Control::can_manage_notes() ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to do this.', 'logify-wp' ) ), 403 );
 		}
 		
 		$note_id = isset($_POST['note_id']) 
 			? intval( sanitize_text_field( wp_unslash( $_POST['note_id'] ) ) ) 
 			: 0;	
 		$event_id = isset($_POST['event_id']) 
-			? intval( sanitize_text_field( wp_unslash( $_POST['event_id'] ) ) ) 
+			? absint( wp_unslash( $_POST['event_id'] ) ) 
 			: 0;
 		if ( !$event_id && !$note_id ) {
-			wp_send_json_error(['message' => 'Invalid note data.']);
+			wp_send_json_error( array( 'message' => __( 'Invalid note data.', 'logify-wp' ) ) );
 		}
 		if(empty($_POST['note_content'])){
-			wp_send_json_error(['message' => 'Note can\'t be empty.']);
+			wp_send_json_error( array( 'message' => __( 'Note cannot be empty.', 'logify-wp' ) ) );
 		}
 	
 		// Fetch the note to validate ownership
 		$note_repo = new \Logify_WP\Note_Repository();	
 
-		if ( $event_id ){
-			$existing_note = $note_repo->load_by_event_id($event_id);
-		}else{
-			$existing_note = $note_repo->load($note_id);
-		}
+		// A single event can have several notes: only the explicit note ID is unique.
+		$existing_note = $note_id ? $note_repo->load( $note_id ) : null;
 
 		if (!$existing_note) {
-			wp_send_json_error(['message' => 'Note not found.']);
+			wp_send_json_error( array( 'message' => __( 'Note not found.', 'logify-wp' ) ) );
 		}
 	
+
+		// load_by_event_id() returns a raw database row (string columns, note_id) while load()
+		// returns a Note object (int properties, id). Normalise before comparing or saving:
+		// the previous strict comparison of a string user_id against an int always failed, so
+		// editing a note found by event ID was always refused, and a note_id of 0 reached the
+		// repository and threw an uncaught exception.
+		$existing_user_id = (int) ( $existing_note->user_id ?? 0 );
+		$existing_note_id = (int) ( $existing_note->note_id ?? $existing_note->id ?? 0 );
+
 		// Check if the current user is the owner of the note
-		if ($existing_note->user_id !== get_current_user_id()) {
-			wp_send_json_error(['message' => 'You are not authorized to edit this note.']);
+		if ( $existing_user_id !== get_current_user_id() ) {
+			wp_send_json_error( array( 'message' => __( 'You are not authorized to edit this note.', 'logify-wp' ) ), 403 );
 		}
 
-		$success = $note_repo->save((object) [
-			'id'   => $note_id,
-			'note' => isset($_POST['note_content']) 
-				? sanitize_textarea_field( wp_unslash( $_POST['note_content'] ) )
-				: '',
-		]);
-	
+		if ( ! $existing_note_id ) {
+			wp_send_json_error( array( 'message' => __( 'Note not found.', 'logify-wp' ) ) );
+		}
+
+		try {
+			$success = $note_repo->save(
+				(object) array(
+					'id'   => $existing_note_id,
+					'note' => isset( $_POST['note_content'] )
+						? wp_kses_post( wp_unslash( $_POST['note_content'] ) )
+						: '',
+				)
+			);
+		} catch ( \Throwable $e ) {
+			Debug::error( 'Logify WP: failed to update note', $e->getMessage() );
+			wp_send_json_error( array( 'message' => __( 'Failed to update note.', 'logify-wp' ) ) );
+		}
+
 		if ($success) {
-			wp_send_json_success(['message' => 'Note updated successfully.']);
+			wp_send_json_success( array( 'message' => __( 'Note updated successfully.', 'logify-wp' ) ) );
 		} else {
-			wp_send_json_error(['message' => 'Failed to update note.']);
+			wp_send_json_error( array( 'message' => __( 'Failed to update note.', 'logify-wp' ) ) );
 		}
 	}
 
@@ -89,41 +111,43 @@ class Notes_Page {
 
 		// A valid nonce proves intent, not authorization. Without this, any logged-in
 		// user who obtained a nonce could write to the audit log's annotations.
-		if ( ! Access_Control::can_access_log_page() ) {
-			wp_send_json_error( array( 'message' => 'You do not have permission to do this.' ), 403 );
+		if ( ! Access_Control::can_manage_notes() ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to do this.', 'logify-wp' ) ), 403 );
 		}
 	
 		// Validate input
 		if (empty($_POST['note_content'])) {
-			wp_send_json_error(['message' => 'Note content cannot be empty.']);
+			wp_send_json_error( array( 'message' => __( 'Note content cannot be empty.', 'logify-wp' ) ) );
 		}
 
 		$event_id = isset($_POST['event_id']) 
-			? intval( sanitize_text_field( wp_unslash( $_POST['event_id'] ) ) ) 
+			? absint( wp_unslash( $_POST['event_id'] ) ) 
 			: 0;
 		
+		if ( $event_id > 0 && ! Event_Repository::load( $event_id ) ) {
+			wp_send_json_error( array( 'message' => __( 'The selected activity no longer exists.', 'logify-wp' ) ), 404 );
+		}
+
 		// Create note repository instance
 		$note_repo = new \Logify_WP\Note_Repository();
 		$user = wp_get_current_user();
 		// Save new note
 		$success = $note_repo->create( [
 			'note'        => isset($_POST['note_content']) 
-				? sanitize_textarea_field( wp_unslash( $_POST['note_content'] ) ) 
+				? wp_kses_post( wp_unslash( $_POST['note_content'] ) ) 
 				: '',
 			'user_id'     => get_current_user_id(), // Assuming user ID is required
 			'user_role' => !empty($user->roles) ? implode(', ', $user->roles) : 'No role assigned', // Get user roles
     		'user_name'  => $user->user_login, // Get username
 			'activity_id' => ($event_id) ? $event_id : 0,
 			'created_at'  => current_time('mysql'), // Assuming created_at is required
-			'ip_address' => isset($_SERVER['REMOTE_ADDR']) 
-				? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) 
-				: ''
+			'ip_address' => User_Utility::get_ip() ?: ''
 		]);
 	
 		if ($success) {
-			wp_send_json_success(['message' => 'Note added successfully.']);
+			wp_send_json_success( array( 'message' => __( 'Note added successfully.', 'logify-wp' ) ) );
 		} else {
-			wp_send_json_error(['message' => 'Failed to add note.']);
+			wp_send_json_error( array( 'message' => __( 'Failed to add note.', 'logify-wp' ) ) );
 		}
 	}
 
@@ -131,7 +155,7 @@ class Notes_Page {
 	 * Check if the notes feature is enabled
 	 */
 	private static function ensure_feature_enabled() {
-		if (!get_option('logify_wp_enable_notes', false)) {
+		if (!Plugin_Settings::get_enable_notes()) {
 			wp_send_json_error(['message' => 'Notes feature is not enabled in settings.']);
 		}
 	}	
@@ -144,7 +168,7 @@ class Notes_Page {
 		
 		if ( ! Access_Control::can_access_log_page() ) {
 			// Disallow access.
-			wp_die( esc_html( 'Sorry, you are not allowed to access this page.' ), 403 );
+			wp_die( esc_html__( 'Sorry, you are not allowed to access this page.', 'logify-wp' ), 403 );
 		}
 
 		// Get all the data required for the log page.
@@ -179,7 +203,7 @@ class Notes_Page {
 
 		// Check user capabilities.
 		if ( ! Access_Control::can_access_log_page() ) {
-			wp_send_json_error( array( 'message' => esc_html( 'You are not allowed to access this data.' ) ), 403 );
+			wp_send_json_error( array( 'message' => esc_html__( 'You are not allowed to access this data.', 'logify-wp' ) ), 403 );
 		}
 
 		global $wpdb;
@@ -220,7 +244,7 @@ class Notes_Page {
 			}
 		}
 		// Include ordering by note ID, if not already included.
-		if ( ! in_array( 'note_id', $order_by_columns ) ) {
+		if ( ! in_array( 'note_id', $order_by_columns, true ) ) {
 			$order_by_columns[] = 'note_id';
 		}
 
@@ -264,9 +288,11 @@ class Notes_Page {
 			: null;
 
 		// Get the event type.
-		$note_type = isset( $_COOKIE['event_type'] )
-			? sanitize_text_field( wp_unslash( $_COOKIE['event_type'] ) )
-			: null;
+		// Note: versions up to 1.4.0 read the log page's 'event_type' cookie here and filtered
+		// the notes table on an event_type column, which that table does not have. Setting an
+		// event-type filter on the log page and then opening the Notes page therefore produced a
+		// database error and an empty list. The Notes page has no event-type filter, so the
+		// filter has been removed rather than rewritten.
 
 		// Get the user.
 		$user_id = isset( $_COOKIE['user_id'] )
@@ -357,12 +383,6 @@ class Notes_Page {
 			}
 		}
 
-		// Filter by event type if specified.
-		if ( $note_type ) {
-			$where_parts[] = 'event_type = %s';
-			$where_args[]  = $note_type;
-		}
-
 		// Filter by user if specified.
 		if ( $user_id !== '' && $user_id !== null ) {
 			$where_parts[] = 'user_id = %d';
@@ -390,8 +410,9 @@ class Notes_Page {
 		// -----------------------------------------------------------------------------------------
 		// Get the requested records.
 
-		// Select clause.
-		$select = 'SELECT note_id FROM %i e LEFT JOIN %i u ON e.user_id = u.ID';
+		// Select clause. The whole note row is selected so the loop below does not have to
+		// re-load each note (which also pulled in the related event's properties and metadata).
+		$select = 'SELECT e.* FROM %i e LEFT JOIN %i u ON e.user_id = u.ID';
 
 		// Order-by clause.
 		$order_by      = '';
@@ -424,8 +445,8 @@ class Notes_Page {
 		// Construct the data array to return to the client.
 		$data = array();
 		foreach ( $recordset as $record ) {
-			// Construct the Note object.
-			$note = Note_Repository::load( $record['note_id'] );
+			// Construct the Note object from the row we already have.
+			$note = Note_Repository::record_to_object( $record );
 			// Create a new data item.
 			$item             = array();
 			$item['note_id'] = $note->id;
@@ -438,10 +459,7 @@ class Notes_Page {
 				$item['created_at']  = '<div>' . wp_kses_post($formatted_datetime) . ' (' . esc_html($time_ago) . ')</div>';
 			} catch ( \Exception $e ) {
 				// Handle the exception if the date string is invalid.
-				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-					// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-					error_log('Invalid date format for $note->created_at: ' . $e->getMessage());
-				}
+				Debug::warning( 'Logify WP: invalid date format for note created_at', $e->getMessage() );
 				$item['created_at'] = '<div>Invalid date</div>';
 			}
 			
@@ -483,7 +501,7 @@ class Notes_Page {
 
 			$item['details'] = self::format_details( $note );
 			
-			if ($note->user_id == get_current_user_id()) {
+			if (Access_Control::can_manage_notes() && $note->user_id == get_current_user_id()) {
 				$item['edit_link'] = '<a href="#" class="edit-note-link" data-note-id="' . intval($note->id) . '" data-note-content="' . esc_attr($note->note) . '">Edit</a>';
 			}
 			
@@ -512,24 +530,24 @@ class Notes_Page {
 	public static function format_user_details( Note $note ): string {
 		// Construct the HTML.
 		$html  = "<div class='logify-wp-details-section logify-wp-user-details-section'>\n";
-		$html .= "<h4>User Details</h4>\n";
+		$html .= '<h4>' . esc_html__( 'User Details', 'logify-wp' ) . "</h4>\n";
 		$html .= "<div class='logify-wp-details-table-wrapper'>\n";
 		$html .= "<table class='logify-wp-details-table logify-wp-user-details-table'>\n";
 
 		// User tag.
 		$user_tag = User_Utility::get_tag( $note->user_id, $note->user_name );
-		$html    .= "<tr><th>User</th><td>$user_tag</td></tr>\n";
+		$html    .= '<tr><th>' . esc_html__( 'User', 'logify-wp' ) . '</th>' . "<td>" . wp_kses_post( $user_tag ) . "</td></tr>\n";
 
 		// Role.
 		$user_role = esc_html( ucwords( $note->user_role ) );
-		$html     .= "<tr><th>Role</th><td>$user_role</td></tr>\n";
+		$html     .= '<tr><th>' . esc_html__( 'Role', 'logify-wp' ) . '</th>' . "<td>$user_role</td></tr>\n";
 
 		// User ID.
-		$html .= "<tr><th>ID</th><td>$note->ip_address</td></tr>";
+		$html .= '<tr><th>' . esc_html__( 'ID', 'logify-wp' ) . '</th><td>' . (int) $note->user_id . '</td></tr>';
 
 		// IP address.
-		$ip_link = $note->ip_address ? Urls::get_ip_link( $note->ip_address ) : 'Unknown';
-		$html   .= "<tr><th>IP address</th><td>$ip_link</td></tr>\n";
+		$ip_link = $note->ip_address ? Urls::get_ip_link( $note->ip_address ) : esc_html__( 'Unknown', 'logify-wp' );
+		$html   .= '<tr><th>' . esc_html__( 'IP address', 'logify-wp' ) . '</th>' . "<td>" . wp_kses_post( $ip_link ) . "</td></tr>\n";
 
 		// If the user has been deleted, we won't have all their details. Although, we could
 		// try looking up the log entry for when the user was deleted, and see if we can
@@ -541,23 +559,23 @@ class Notes_Page {
 			$user = User_Utility::load( $note->user_id );
 
 			// User email.
-			$user_email = empty( $user->user_email ) ? 'Unknown' : esc_html( $user->user_email );
-			$html      .= '<tr><th>Email</th><td>' . User_Utility::get_email_link( $user_email ) . "</a></td></tr>\n";
+			$user_email = empty( $user->user_email ) ? esc_html__( 'Unknown', 'logify-wp' ) : esc_html( $user->user_email );
+			$html      .= '<tr><th>' . esc_html__( 'Email', 'logify-wp' ) . '</th><td>' . User_Utility::get_email_link( $user_email ) . "</td></tr>\n";
 
 			// Get the registration datetime.
 			$registration_datetime        = DateTimes::create_datetime( $user->data->user_registered, 'UTC' );
 			$registration_datetime_string = DateTimes::format_datetime_site( $registration_datetime );
-			$html                        .= "<tr><th>Registered</th><td>$registration_datetime_string</td></tr>\n";
+			$html                        .= '<tr><th>' . esc_html__( 'Registered', 'logify-wp' ) . '</th>' . "<td>$registration_datetime_string</td></tr>\n";
 
 			// Get the last login datetime.
 			$last_login_datetime        = User_Utility::get_last_login_datetime( $note->user_id );
-			$last_login_datetime_string = $last_login_datetime !== null ? DateTimes::format_datetime_site( $last_login_datetime ) : 'Unknown';
-			$html                      .= "<tr><th>Last login</th><td>$last_login_datetime_string</td></tr>\n";
+			$last_login_datetime_string = $last_login_datetime !== null ? DateTimes::format_datetime_site( $last_login_datetime ) : esc_html__( 'Unknown', 'logify-wp' );
+			$html                      .= '<tr><th>' . esc_html__( 'Last login', 'logify-wp' ) . '</th>' . "<td>$last_login_datetime_string</td></tr>\n";
 
 			// Get the last active datetime.
 			$last_active_datetime        = User_Utility::get_last_active_datetime( $note->user_id );
-			$last_active_datetime_string = $last_active_datetime !== null ? DateTimes::format_datetime_site( $last_active_datetime ) : 'Unknown';
-			$html                       .= "<tr><th>Last active</th><td>$last_active_datetime_string</td></tr>\n";
+			$last_active_datetime_string = $last_active_datetime !== null ? DateTimes::format_datetime_site( $last_active_datetime ) : esc_html__( 'Unknown', 'logify-wp' );
+			$html                       .= '<tr><th>' . esc_html__( 'Last active', 'logify-wp' ) . '</th>' . "<td>$last_active_datetime_string</td></tr>\n";
 		}
 
 		$html .= "</table>\n";
@@ -577,17 +595,17 @@ class Notes_Page {
 
 		// Convert eventmetas to a table of key-value pairs.
 		$html  = "<div class='logify-wp-details-section logify-wp-eventmeta-section'>\n";
-		$html .= "<h4>Note Details</h4>\n";
+		$html .= '<h4>' . esc_html__( 'Note Details', 'logify-wp' ) . "</h4>\n";
 		$html .= "<div class='logify-wp-details-table-wrapper'>\n";
 		$html .= "<table class='logify-wp-details-table logify-wp-eventmeta-table'>\n";
-		$html .= "<tr><th>Note</th><td>$note->note</td></tr>";
+		$html .= '<tr><th>' . esc_html__( 'Note', 'logify-wp' ) . '</th>' . "<td>" . wp_kses_post( $note->note ) . "</td></tr>";
 				// Handle the null case.
 		if ( !empty( $note->eventmetas ) ) {
 					
 			foreach ( $note->eventmetas as $notemeta ) {
 				$label = Strings::key_to_label( $notemeta->meta_key );
 				$value = Types::value_to_html( $notemeta->meta_key, $notemeta->meta_value );
-				$html .= "<tr><th>$label</th><td>$value</td></tr>";
+				$html .= "<tr><th>" . esc_html( $label ) . "</th><td>$value</td></tr>";
 			}
 		}
 		$html .= "</table>\n";
@@ -669,16 +687,27 @@ class Notes_Page {
 		// Convert JSON string to a table showing the changes.
 		$html = "<div class='logify-wp-details-section logify-wp-properties-section'>\n";
 
-		// Get the title given the object type.
-		$object_type_title = match ( $note->object_type ) {
-			'user'   => 'Account',
-			'option' => 'Setting',
+		// Get the title given the object type. A note is not always attached to an event, so
+		// object_type can legitimately be empty; passing that straight to key_to_label()
+		// produced a deprecation on PHP 8.1+.
+		$object_type = $note->object_type ?? '';
+
+		$object_type_title = match ( $object_type ) {
+			'user'   => __( 'Account', 'logify-wp' ),
+			'option' => __( 'Setting', 'logify-wp' ),
 			'post'   => self::get_post_type_title( $note ),
 			'term'   => self::get_term_type_title( $note ),
-			default  => Strings::key_to_label( $note->object_type, true ),
+			''       => __( 'Event', 'logify-wp' ),
+			default  => Strings::key_to_label( $object_type, true ),
 		};
 
-		$html .= "<h4>$object_type_title Details</h4>\n";
+		$html .= '<h4>' . esc_html(
+			sprintf(
+				/* translators: %s: object type, for example Post or Account. */
+				__( '%s Details', 'logify-wp' ),
+				$object_type_title
+			)
+		) . "</h4>\n";
 
 		// Start scrollable wrapper.
 		$html .= "<div class='logify-wp-details-table-wrapper'>\n";
@@ -704,7 +733,7 @@ class Notes_Page {
 
 			// Property key.
 			$key   = Strings::key_to_label( $prop->key );
-			$html .= "<th>$key</th>";
+			$html .= "<th>" . esc_html( $key ) . "</th>";
 
 			// Current or old value.
 			$val   = Types::value_to_html( $prop->key, $prop->val );

@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_Post;
 
 /**
@@ -184,7 +189,7 @@ class Menu_Item_Utility extends Object_Utility {
 
 		foreach ( $meta as $key => $value ) {
 			// Get the properties we want.
-			if ( in_array( $key, $fields ) ) {
+			if ( in_array( $key, $fields, true ) ) {
 				// Just take the first value, these are all singular.
 				$menu_item_details[ $key ] = $value[0];
 			}
