@@ -77,7 +77,7 @@ class Data_Migration {
 	public static function repair_wp_logify_properties_table() {
 		global $wpdb;
 
-		Debug::info( 'repair_wp_logify_properties_table' );
+		//Debug::info( 'repair_wp_logify_properties_table' );
 
 		// Get the correct table name with the WordPress table prefix.
 		$table_name = $wpdb->prefix . 'wp_logify_properties';
@@ -86,7 +86,7 @@ class Data_Migration {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$table_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table_name ) );
 
-		Debug::info( "Table exists: $table_exists" );
+		//Debug::info( "Table exists: $table_exists" );
 
 		if ( $table_exists !== $table_name ) {
 			// Table does not exist, so nothing to do.
@@ -138,7 +138,7 @@ class Data_Migration {
 	 */
 	public static function migrate_table( string $table_key, array $fields_to_update = array() ): void {
 
-		Debug::info( 'migrate_table', $table_key );
+		//Debug::info( 'migrate_table', $table_key );
 
 		global $wpdb;
 

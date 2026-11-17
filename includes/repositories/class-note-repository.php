@@ -14,6 +14,12 @@ class Note_Repository extends Repository {
      * Table name for the notes.
      */
     protected $table_name;
+    /**
+     * WPDB instance.
+     *
+     * @var \wpdb
+     */
+    protected $wpdb;
 
     /**
      * Constructor: Set the table name and initialize parent.
@@ -77,7 +83,7 @@ class Note_Repository extends Repository {
 		$note->user_id        = (int) $record['user_id'];
 		$note->user_name      = $record['user_name'];
 		$note->user_role      = $record['user_role'];
-		$note->user_ip        = $record['user_ip'];
+        $note->user_ip        = $record['ip_address'] ?? null;
 		$note->note  = $record['note'];
 		$note->event_id     = $record['activity_id'];
 		return $note;

@@ -19,11 +19,9 @@ namespace Logify_WP;
 class Option_Tracker {
 
 	/**
-	 * Settings update event.
-	 *
-	 * @var Event
+	 * Persistent storage prefix for queued option batches.
 	 */
-	private static $event;
+	private const BATCH_OPTION_PREFIX = 'logify_wp_option_batch_';
 
 	/**
 	 * Set up hooks for the events we want to log.
@@ -31,10 +29,11 @@ class Option_Tracker {
 	public static function init() {
 		// Track settings updates.
 		add_action( 'update_option', [__NAMESPACE__.'\Async_Tracker','async_update_option_option'], 10, 3 );
-		add_action( 'middle_update_option_option', array( __CLASS__, 'on_update_option' ), 10, 4 );
+		// Accept batch identifier plus client IP from the async callback.
+		add_action( 'middle_update_option_option', array( __CLASS__, 'on_update_option' ), 10, 6 );
 		
 		add_action( 'shutdown', [__NAMESPACE__.'\Async_Tracker','async_shutdown_option'], 10, 0 );
-		add_action( 'middle_shutdown_option', array( __CLASS__, 'on_shutdown' ), 10, 0 );
+		add_action( 'middle_shutdown_option', array( __CLASS__, 'on_shutdown' ), 10, 1 );
 	}
 
 	/**
@@ -44,65 +43,146 @@ class Option_Tracker {
 	 * @param mixed  $old_value   The old option value.
 	 * @param mixed  $new_value   The new option value.
 	 */
-	public static function on_update_option( string $option_name, mixed $old_value, mixed $new_value, int $acting_user_id ) {
-		global $wpdb, $wp_registered_settings;
+	public static function on_update_option( string $batch_id, string $option_name, mixed $old_value, mixed $new_value, int $acting_user_id, ?string $client_ip = null ) {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			if ( function_exists( 'error_log' ) ) {
+				error_log( '[Logify WP] on_update_option batch ' . $batch_id . ' for: ' . $option_name . ' | old: ' . var_export( $old_value, true ) . ' | new: ' . var_export( $new_value, true ) . ' | user: ' . $acting_user_id );
+			}
+		}
 
-		// Ignore options that aren't settings.
-		if ( ! Option_Utility::is_setting( $option_name ) ) {
+		self::record_option_change( $batch_id, $option_name, $old_value, $new_value, $acting_user_id, $client_ip );
+	}
+
+	/**
+	 * Capture and persist a change immediately without waiting for the async callback.
+	 */
+	public static function capture_option_change_now( string $batch_id, string $option_name, mixed $old_value, mixed $new_value, int $acting_user_id, ?string $client_ip = null ): void {
+		self::record_option_change( $batch_id, $option_name, $old_value, $new_value, $acting_user_id, $client_ip );
+	}
+
+	/**
+	 * Shared logic for validating and persisting option changes.
+	 */
+	private static function record_option_change( string $batch_id, string $option_name, mixed $old_value, mixed $new_value, int $acting_user_id, ?string $client_ip ): void {
+		global $wp_registered_settings;
+
+		if ( ! Option_Utility::should_track_option( $option_name, $old_value, $new_value ) ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
+				error_log( '[Logify WP] Option not a setting, skipping: ' . $option_name );
+			}
 			return;
 		}
 
-		// If this setting is of type boolean, convert the values to boolean.
 		if ( isset( $wp_registered_settings[ $option_name ] ) && $wp_registered_settings[ $option_name ]['type'] === 'boolean' ) {
 			$val     = rest_sanitize_boolean( $old_value );
 			$new_val = rest_sanitize_boolean( $new_value );
 		} else {
-			// Process the values for comparison.
 			$val     = Types::process_database_value( $option_name, $old_value );
 			$new_val = Types::process_database_value( $option_name, $new_value );
 		}
 
-		// If the value has changed, add the setting change to the event properties.
-		if ( ! Types::are_equal( $val, $new_val ) ) {
+		if ( Types::are_equal( $val, $new_val ) ) {
+			return;
+		}
 
-			// Create the event object to encapsulate setting updates, if it doesn't already exist.
-			if ( ! isset( self::$event ) ) {
-				$object_ref  = new Object_Reference( 'option', null, null );
-				self::$event = Event::create( 'Settings Updated', $object_ref, null, null, $acting_user_id);
+		if ( str_ends_with( $option_name, '_category' ) ) {
+			$val     = new Object_Reference( 'term', $val );
+			$new_val = new Object_Reference( 'term', $new_val );
+		} elseif ( $option_name === 'wp_page_for_privacy_policy' ) {
+			$val     = new Object_Reference( 'post', $val );
+			$new_val = new Object_Reference( 'post', $new_val );
+		}
 
-				// If the event could not be created, we aren't tracking this user.
-				if ( ! self::$event ) {
-					return;
-				}
-			}
+		self::store_option_change( $batch_id, $option_name, $val, $new_val, $acting_user_id, $client_ip );
 
-			if ( str_ends_with( $option_name, '_category' ) ) {
-				// Convert categories to links.
-				$val     = new Object_Reference( 'term', $val );
-				$new_val = new Object_Reference( 'term', $new_val );
-			} elseif ( $option_name === 'wp_page_for_privacy_policy' ) {
-				// Convert privacy page to reference.
-				$val     = new Object_Reference( 'post', $val );
-				$new_val = new Object_Reference( 'post', $new_val );
-			}
-
-			// Add the setting change to the properties.
-			self::$event->set_prop( $option_name, $wpdb->options, $val, $new_val );
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
+			error_log( '[Logify WP] Queued option change for batch ' . $batch_id . ': ' . $option_name );
 		}
 	}
 
 	/**
 	 * Fires on shutdown, after PHP execution.
 	 */
-	public static function on_shutdown() {
-		// If there is no event to log, return.
-		if ( ! isset( self::$event ) ) {
+	public static function on_shutdown( string $batch_id ) {
+		$batch = self::get_batch_changes( $batch_id );
+		if ( empty( $batch['changes'] ) ) {
+			self::delete_batch( $batch_id );
 			return;
 		}
 
-		// Get the setting names, but limit to 50 characters total.
+		$object_ref = new Object_Reference( 'option', null, null );
+		$event      = Event::create( 'Settings Updated', $object_ref, null, null, $batch['acting_user_id'] ?? 0, false, $batch['client_ip'] ?? null );
+		if ( ! $event ) {
+			self::delete_batch( $batch_id );
+			return;
+		}
+
+		global $wpdb;
+		foreach ( $batch['changes'] as $option => $values ) {
+			$event->set_prop( $option, $wpdb->options, $values['old'], $values['new'] );
+		}
+
+		self::set_event_object_name( $event );
+		$event->save();
+		self::delete_batch( $batch_id );
+	}
+
+	/**
+	 * Persist a single option change until the batch is flushed.
+	 */
+	private static function store_option_change( string $batch_id, string $option_name, mixed $val, mixed $new_val, int $acting_user_id, ?string $client_ip ): void {
+		$key   = self::get_batch_storage_key( $batch_id );
+		$batch = self::get_batch_changes( $batch_id );
+
+		if ( empty( $batch ) ) {
+			$batch = array(
+				'acting_user_id' => $acting_user_id,
+				'client_ip'      => $client_ip,
+				'changes'        => array(),
+			);
+		} else {
+			if ( empty( $batch['acting_user_id'] ) ) {
+				$batch['acting_user_id'] = $acting_user_id;
+			}
+			if ( empty( $batch['client_ip'] ) ) {
+				$batch['client_ip'] = $client_ip;
+			}
+		}
+
+		$batch['changes'][ $option_name ] = array(
+			'old' => $val,
+			'new' => $new_val,
+		);
+
+		update_option( $key, $batch, false );
+	}
+
+	/**
+	 * Retrieve stored changes for a batch.
+	 */
+	private static function get_batch_changes( string $batch_id ): array {
+		$key  = self::get_batch_storage_key( $batch_id );
+		$data = get_option( $key, array() );
+		return is_array( $data ) ? $data : array();
+	}
+
+	/**
+	 * Delete the stored batch payload.
+	 */
+	private static function delete_batch( string $batch_id ): void {
+		delete_option( self::get_batch_storage_key( $batch_id ) );
+	}
+
+	/**
+	 * Build the option summary for the event title.
+	 */
+	private static function set_event_object_name( Event $event ): void {
+		if ( empty( $event->properties ) ) {
+			return;
+		}
+
 		$option_names = '';
-		foreach ( self::$event->properties as $option => $prop ) {
+		foreach ( $event->properties as $option => $prop ) {
 			$option_name   = Option_Utility::get_name( $option );
 			$option_names2 = ( $option_names ? ( $option_names . ', ' ) : '' ) . $option_name;
 			if ( strlen( $option_names2 ) <= Logger::MAX_OBJECT_NAME_LENGTH - 6 ) {
@@ -112,9 +192,14 @@ class Option_Tracker {
 				break;
 			}
 		}
-		self::$event->object_name = $option_names;
 
-		// Log the event.
-		self::$event->save();
+		$event->object_name = $option_names;
+	}
+
+	/**
+	 * Generate a deterministic storage key for an option batch.
+	 */
+	private static function get_batch_storage_key( string $batch_id ): string {
+		return self::BATCH_OPTION_PREFIX . hash( 'sha1', $batch_id );
 	}
 }

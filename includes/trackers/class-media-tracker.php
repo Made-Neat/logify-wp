@@ -28,7 +28,7 @@ class Media_Tracker {
 	 *
 	 * @var ?string
 	 */
-	private static ?string $media_type;
+	private static ?string $media_type = null;
 
 	/**
 	 * Whether the event being developed is for creating a media object, or updating it.
@@ -45,47 +45,48 @@ class Media_Tracker {
 	private static bool $reusing = false;
 
 	/**
+	 * Cached post ID for the current update_media_event.
+	 *
+	 * @var ?int
+	 */
+	private static ?int $update_media_post_id = null;
+
+	/**
 	 * Set up hooks for the events we want to log.
 	 */
 	public static function init() {
 		// Add or update media.
-		// add_action( 'add_attachment', [__NAMESPACE__.'\Async_Tracker','async_add_attachment'], 10, 1 );
-		// add_action( 'middle_add_attachment', array( __CLASS__, 'on_add_attachment' ), 10, 1 );
-		add_action( 'add_attachment', array( __CLASS__, 'on_add_attachment' ), 10, 1 );
+		add_action( 'add_attachment', array(__NAMESPACE__.'\\Async_Tracker','async_add_attachment'), 10, 1 );
+		add_action( 'middle_add_attachment', array( __CLASS__, 'on_add_attachment' ), 10, 3 );
 		
-		add_action( 'add_post_meta', [__NAMESPACE__.'\Async_Tracker','async_add_post_meta'], 10, 3 );
-		add_action( 'middle_add_post_meta', array( __CLASS__, 'on_add_post_meta' ), 10, 3 );
+		add_action( 'add_post_meta', array(__NAMESPACE__.'\Async_Tracker','async_add_post_meta'), 10, 3 );
+		add_action( 'middle_add_post_meta', array( __CLASS__, 'on_add_post_meta' ), 10, 5 );
 		
-		add_action( 'update_post_meta', [__NAMESPACE__.'\Async_Tracker','async_update_post_meta'], 10, 4 );
-		add_action( 'middle_update_post_meta', array( __CLASS__, 'on_update_post_meta' ), 10, 4 );
+		add_action( 'update_post_meta', array(__NAMESPACE__.'\Async_Tracker','async_update_post_meta'), 10, 4 );
+		add_action( 'middle_update_post_meta', array( __CLASS__, 'on_update_post_meta' ), 10, 6 );
 		
-		add_action( 'attachment_updated', [__NAMESPACE__.'\Async_Tracker','async_attachment_updated'], 10, 3 );
-		add_action( 'middle_attachment_updated', array( __CLASS__, 'on_attachment_updated' ), 10, 3 );
+		add_action( 'attachment_updated', array(__NAMESPACE__.'\\Async_Tracker','async_attachment_updated'), 10, 3 );
+		add_action( 'middle_attachment_updated', array( __CLASS__, 'on_attachment_updated' ), 10, 5 );
 		
 		// Delete media.
-		add_action( 'delete_attachment', [__NAMESPACE__.'\Async_Tracker','async_delete_attachment'], 10, 2 );
-		add_action( 'middle_delete_attachment', array( __CLASS__, 'on_delete_attachment' ), 10, 2 );
+		add_action( 'delete_attachment', array(__NAMESPACE__.'\\Async_Tracker','async_delete_attachment'), 10, 2 );
+		add_action( 'middle_delete_attachment', array( __CLASS__, 'on_delete_attachment' ), 10, 4 );
 		
-		// Shutdown.
-		add_action( 'shutdown', [__NAMESPACE__.'\Async_Tracker','async_shutdown_media'], 10, 0 );
-		add_action( 'middle_shutdown_media', array( __CLASS__, 'on_shutdown' ), 10, 0 );
+		// Flush pending media event changes at the end of the current request.
+		add_action( 'shutdown', array( __CLASS__, 'on_shutdown' ), 10, 0 );
 	}
 
 	/**
 	 * Get the update or create media event. If it hasn't been created yet, do it now.
 	 *
-	 * @param int|WP_Post $post The attachment post the event is about.
+	 * @param int|WP_Post $post        The attachment post the event is about.
+	 * @param int         $acting_user Acting user ID.
+	 * @param string|null $client_ip   Client IP address.
 	 * @return ?Event The event, if it could be found or created.
 	 */
-	private static function get_update_media_event( int|WP_Post $post ): ?Event {
+	private static function get_update_media_event( int|WP_Post $post, int $acting_user = 0, ?string $client_ip = null ): ?Event {
 
-		// $post = unserialize($s_post);
-		// If we already have an event, return it.
-		if ( self::$update_media_event ) {
-			return self::$update_media_event;
-		}
-
-		// Get the post object and ID.
+		// Normalize to post_id and WP_Post.
 		if ( is_int( $post ) ) {
 			$post_id = $post;
 			$post    = Post_Utility::load( $post_id );
@@ -93,51 +94,78 @@ class Media_Tracker {
 			$post_id = (int) $post->ID;
 		}
 
-		// Get the media type and remember it.
+		// If we could not load a valid post, bail.
+		if ( ! $post instanceof WP_Post ) {
+			Debug::warning( __METHOD__ . ' could not load WP_Post for ID ' . $post_id );
+			return null;
+		}
+
+		// If we already have an event for this SAME post in this request, reuse it.
+		if ( self::$update_media_event && self::$update_media_post_id === $post_id ) {
+			return self::$update_media_event;
+		}
+
+		// Resolve media type.
 		self::$media_type = Media_Utility::get_media_type( $post_id );
 
-		// Get the event type.
+		if ( ! self::$media_type ) {
+			Debug::warning( __METHOD__ . ' no media_type for post ' . $post_id );
+			return null;
+		}
+
 		$event_type = ucfirst( self::$media_type ) . ' Updated';
 
-		// Get the user's most recent event. If it's equivalent, and was created within the past
-		// few minutes, we'll add to it instead of creating a new one.
+		// Look at the most recent event in the log to decide reuse.
 		$event = Event_Repository::get_most_recent_event();
 
-		// Check if we can re-use this event.
-		self::$reusing = $event &&
-			$event->event_type === $event_type &&
-			$event->object_type === 'post' &&
-			$event->object_key === $post_id &&
-			$event->when_happened->getTimestamp() > time() - 300;
+		self::$reusing = $event
+			&& $event->event_type  === $event_type
+			&& $event->object_type === 'post'
+			&& (int) $event->object_key === $post_id
+			&& $event->when_happened->getTimestamp() > time() - 300;
 
 		if ( ! self::$reusing ) {
-			// Create a new event.
-			$event = Event::create( $event_type, $post );
+			// Create a fresh event.
+			$event = Event::create(
+				$event_type,
+				$post,
+				null,
+				null,
+				$acting_user ?: null,
+				false,
+				$client_ip
+			);
 
-			// If the event could not be created, return null.
 			if ( ! $event ) {
+				Debug::warning( __METHOD__ . ' Event::create failed for post ' . $post_id );
 				return null;
 			}
 		}
 
-		// Keep a reference to the event.
-		self::$update_media_event = $event;
+		self::$update_media_event   = $event;
+		self::$update_media_post_id = $post_id;
 
 		return $event;
 	}
+
 
 	/**
 	 * Fires once an attachment has been added.
 	 *
 	 * NOTE: Not sure if this is actually being triggered. It may depend on how the attachment is added.
 	 *
-	 * @param int $post_id Attachment ID.
+	 * @param int         $post_id      Attachment ID.
+	 * @param int         $acting_user  Acting user ID.
+	 * @param string|null $client_ip    Client IP address.
 	 */
-	public static function on_add_attachment( int $post_id ) {
+	public static function on_add_attachment( int $post_id, int $acting_user = 0, ?string $client_ip = null ) {
 		Debug::info( __CLASS__, __FUNCTION__ );
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
+			error_log( '[Logify WP] Media_Tracker::on_add_attachment called for post_id: ' . $post_id );
+		}
 
 		// Get the event.
-		$event = self::get_update_media_event( $post_id );
+		$event = self::get_update_media_event( $post_id, $acting_user, $client_ip );
 		if ( ! $event ) {
 			return;
 		}
@@ -165,10 +193,13 @@ class Media_Tracker {
 	 * @param string $meta_key   Metadata key.
 	 * @param mixed  $meta_value Metadata value.
 	 */
-	public static function on_add_post_meta( int $post_id, string $meta_key, mixed $meta_value ) {
+	public static function on_add_post_meta( int $post_id, string $meta_key, mixed $meta_value, ?int $acting_user_id = null, ?string $client_ip = null ) {
 		Debug::info( __CLASS__, __FUNCTION__ );
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
+			error_log( '[Logify WP] Media_Tracker::on_add_post_meta called for post_id: ' . $post_id . ' | meta_key: ' . $meta_key . ' | meta_value: ' . var_export($meta_value, true) );
+		}
 
-		return self::on_update_post_meta( 0, $post_id, $meta_key, $meta_value );
+		return self::on_update_post_meta( 0, $post_id, $meta_key, $meta_value, $acting_user_id, $client_ip );
 	}
 
 	/**
@@ -179,7 +210,10 @@ class Media_Tracker {
 	 * @param string $meta_key   The key of the meta data.
 	 * @param mixed  $meta_value The new value of the meta data.
 	 */
-	public static function on_update_post_meta( int $meta_id, int $post_id, string $meta_key, mixed $meta_value ) {
+	public static function on_update_post_meta( int $meta_id, int $post_id, string $meta_key, mixed $meta_value, ?int $acting_user_id = null, ?string $client_ip = null ) {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
+			error_log( '[Logify WP] Media_Tracker::on_update_post_meta called for meta_id: ' . $meta_id . ' | post_id: ' . $post_id . ' | meta_key: ' . $meta_key . ' | meta_value: ' . var_export($meta_value, true) );
+		}
 		global $wpdb;
 
 		// Some changes are uninteresting.
@@ -198,7 +232,7 @@ class Media_Tracker {
 		Debug::info( __CLASS__, __FUNCTION__, $media_type );
 
 		// Get the event.
-		$event = self::get_update_media_event( $post_id );
+		$event = self::get_update_media_event( $post_id, (int) ($acting_user_id ?? 0), $client_ip );
 		if ( ! $event ) {
 			return;
 		}
@@ -236,15 +270,37 @@ class Media_Tracker {
 	/**
 	 * Fires once an existing attachment has been updated.
 	 *
-	 * @param int     $post_id     Post ID.
-	 * @param WP_Post $post_after  Post object following the update.
-	 * @param WP_Post $post_before Post object before the update.
+	 * @param int         $post_id             Post ID.
+	 * @param mixed       $serialize_post_after Post object following the update.
+	 * @param mixed       $serialize_post_before Post object before the update.
+	 * @param int         $acting_user         Acting user ID.
+	 * @param string|null $client_ip           Client IP address.
 	 */
-	public static function on_attachment_updated( int $post_id, $serialize_post_after, $serialize_post_before ) {
+	public static function on_attachment_updated( int $post_id, $serialize_post_after, $serialize_post_before, int $acting_user = 0, ?string $client_ip = null ) {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
+			error_log( '[Logify WP] Media_Tracker::on_attachment_updated called for post_id: ' . $post_id );
+		}
 
-		//unserialize post objects
-		$post_after = unserialize($serialize_post_after);
-		$post_before = unserialize($serialize_post_before);
+		//unserialize post objects safely
+		if (is_string($serialize_post_after)) {
+			$post_after = null;
+			Serialization::try_unserialize($serialize_post_after, $post_after);
+		} elseif (is_array($serialize_post_after)) {
+			$post_after = (object) $serialize_post_after;
+		} else {
+			$post_after = $serialize_post_after;
+		}
+		if (is_string($serialize_post_before)) {
+			$post_before = null;
+			Serialization::try_unserialize($serialize_post_before, $post_before);
+		} elseif (is_array($serialize_post_before)) {
+			$post_before = (object) $serialize_post_before;
+		} else {
+			$post_before = $serialize_post_before;
+		}
+		if (!is_object($post_after) || !is_object($post_before)) {
+			Debug::warning('logify-debug: on_attachment_updated got unexpected types: post_after=' . gettype($post_after) . ' post_before=' . gettype($post_before));
+		}
 		
 		// Get the media type.
 
@@ -269,7 +325,7 @@ class Media_Tracker {
 		}
 
 		// Get the event.
-		$event = self::get_update_media_event( $post_id );
+		$event = self::get_update_media_event( $post_id, $acting_user, $client_ip );
 		if ( ! $event ) {
 			return;
 		}
@@ -315,32 +371,46 @@ class Media_Tracker {
 	 * Log the deletion of an attachment.
 	 * This hook is triggered at the start of the deletion process.
 	 *
-	 * @param int     $post_id The ID of the post to be deleted.
-	 * @param WP_Post $post    The post object to be deleted.
+	 * @param int         $post_id      The ID of the post to be deleted.
+	 * @param mixed       $serialize_post The post object to be deleted.
+	 * @param int         $acting_user  Acting user ID.
+	 * @param string|null $client_ip    Client IP address.
 	 */
-	public static function on_delete_attachment( int $post_id, $serialize_post ) {
+	public static function on_delete_attachment( int $post_id, $serialize_post, int $acting_user = 0, ?string $client_ip = null ) {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
+			error_log( '[Logify WP] Media_Tracker::on_delete_attachment called for post_id: ' . $post_id );
+		}
 		// This method is only for attachments.
-		$post = unserialize($serialize_post);
-
-		if ( get_post_type( $post_id ) !== 'attachment' ) {
-			return;
+		if (is_string($serialize_post)) {
+			$post = null;
+			Serialization::try_unserialize($serialize_post, $post);
+		} elseif (is_array($serialize_post)) {
+			$post = (object) $serialize_post;
+		} else {
+			$post = $serialize_post;
+		}
+		if (!is_object($post)) {
+			Debug::warning('logify-debug: on_delete_attachment expected object, got ' . gettype($post));
 		}
 
-		// Get the media type.
-		$media_type = Media_Utility::get_media_type( $post_id );
-
-		// This method is only for media.
-		if ( ! $media_type ) {
-			return;
+		$post_type = null;
+		if ( is_object( $post ) && isset( $post->post_type ) ) {
+			$post_type = $post->post_type;
+		} elseif ( is_array( $post ) && isset( $post['post_type'] ) ) {
+			$post_type = $post['post_type'];
+		} else {
+			$post_type = get_post_type( $post_id );
 		}
 
-		Debug::info( __CLASS__, __FUNCTION__, $media_type );
+		if ( $post_type !== 'attachment' ) {
+			return;
+		}
 
 		// Get the event type.
-		$event_type = ucfirst( $media_type ) . ' Deleted';
+		$event_type = 'Media Deleted';
 
-		// Create the event.
-		$event = Event::create( $event_type, $post );
+		// Create the event with acting user and client IP.
+		$event = Event::create( $event_type, $post, null, null, $acting_user ?: null, false, $client_ip );
 
 		// If the event could not be created, we aren't tracking this user.
 		if ( ! $event ) {
@@ -364,6 +434,9 @@ class Media_Tracker {
 	 * Fires on shutdown, after PHP execution.
 	 */
 	public static function on_shutdown() {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
+			error_log( '[Logify WP] Media_Tracker::on_shutdown called. Event exists: ' . ( self::$update_media_event ? 'YES' : 'NO' ) . ' | Creating: ' . ( self::$creating ? 'YES' : 'NO' ) );
+		}
 		// Save the media updated or added event, if it exists.
 		if ( self::$update_media_event ) {
 			if ( self::$creating || self::$update_media_event->has_changes() ) {

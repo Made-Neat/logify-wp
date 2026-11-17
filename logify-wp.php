@@ -3,7 +3,7 @@
  * Plugin Name: Logify WP - Activity Log & User Audit Log
  * Plugin URI: https://logifywp.com
  * Description: Logify WP features advanced tracking to ensure awareness of all changes made to your WordPress website, including who made them and when.
- * Version: 1.3.0
+ * Version: 1.3.1
  * Author: Made Neat
  * Author URI: https://madeneat.com
  * Requires at least: 6.2
@@ -33,12 +33,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if (!function_exists('get_plugin_data')) {
-    require_once ABSPATH . 'wp-admin/includes/plugin.php';
+    require_once(ABSPATH . 'wp-admin/includes/plugin.php');
+}
+
+if (!defined('WP_PLUGIN_DIR')) {
+    require_once(ABSPATH . 'wp-settings.php');
 }
 
 // Some useful globals.
-define( 'LOGIFY_WP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
-define( 'LOGIFY_WP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
+define('LOGIFY_WP_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('LOGIFY_WP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 
 // =================================================================================================
 // Include all classes.
@@ -52,6 +56,7 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-set.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-strings.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-types.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-urls.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-as-guard.php';
 
 // Classes that encapsulate the core plugin data types.
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/models/class-error.php';
@@ -82,6 +87,7 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-php-error-log.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-logger.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-main.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-plugin-settings.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-as-bloat-cleaner.php';
 
 // Classes for tracking events.
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-async-tracker.php';
@@ -96,6 +102,9 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-term-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-theme-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-user-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-widget-tracker.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-gravityforms-tracker.php';
+// Setting tracker was redundant with Option_Tracker; not loading to avoid duplicate logs
+// require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-setting-tracker.php';
 
 // Classes for working with application objects.
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-object-utility.php';
@@ -111,12 +120,15 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-term-utility.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-theme-utility.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-user-utility.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-widget-utility.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-gravityform-utility.php';
 
 //check website already has ActionScheduler library
 if(!class_exists('ActionScheduler')){
     // Require action scheduler library
     require_once __DIR__ . DIRECTORY_SEPARATOR . 'action-scheduler' . DIRECTORY_SEPARATOR . 'action-scheduler.php';
 }
+
+\Logify_WP\AS_Bloat_Cleaner::init();
 
 // =================================================================================================
 

@@ -333,6 +333,7 @@ class Strings {
 		'_wp_attachment_metadata'  => 'Attachment metadata',
 		'blogdescription'          => 'Blog description',
 		'blogname'                 => 'Blog name',
+		'blog_public'              => 'Search engine visibility',
 		'channelmode'              => 'Channel mode',
 		'dataformat'               => 'Data format',
 		'fileformat'               => 'File format',

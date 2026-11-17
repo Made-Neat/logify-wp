@@ -424,10 +424,12 @@ class Notes_Page {
 				$formatted_datetime  = DateTimes::format_datetime_site($created_at_datetime);
 				$time_ago            = DateTimes::get_ago_string($created_at_datetime); // Pass DateTime object.
 				$item['created_at']  = '<div>' . wp_kses_post($formatted_datetime) . ' (' . esc_html($time_ago) . ')</div>';
-			} catch (\Exception $e) {
+			} catch ( \Exception $e ) {
 				// Handle the exception if the date string is invalid.
-				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-				error_log('Invalid date format for $note->created_at: ' . $e->getMessage());
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+					error_log('Invalid date format for $note->created_at: ' . $e->getMessage());
+				}
 				$item['created_at'] = '<div>Invalid date</div>';
 			}
 			

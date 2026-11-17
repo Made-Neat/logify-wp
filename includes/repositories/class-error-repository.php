@@ -17,6 +17,8 @@ class Error_Repository extends Repository
      */
     protected $table_name;
 
+    private $wpdb;
+
     /**
      * Constructor: Set the table name and initialize parent.
      */

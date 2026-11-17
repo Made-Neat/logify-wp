@@ -1,805 +1,1070 @@
 <?php
+
+declare(strict_types=1);
+
 /**
- * Contains the User_Tracker class.
+ * Async tracker for Logify.
  *
  * @package Logify_WP
  */
 
 namespace Logify_WP;
 
-use WP_Error;
-use WP_User;
-use WP_Upgrader;
-use WP_Theme;
-use WP_Post;
 use WP_Comment;
+use WP_Error;
+use WP_Post;
+use WP_Theme;
+use WP_Upgrader;
+use WP_User;
 
 /**
- * Class Logify_WP\User_Tracker
+ * Class Async_Tracker
  *
- * Provides tracking of events related to users.
+ * Enqueues asynchronous tasks for various WordPress events in a safe, deduplicated way.
+ * All actions are placed into the "logify" Action Scheduler group for easier management.
  */
-
 class Async_Tracker
 {
     /**
-     * Helper to schedule an asynchronous action.
-     *
-     * @param string $hook   The hook name to trigger when running the action.
-     * @param array  $args   The arguments passed to the callback.
-     * @param string $group  (Optional) The group this job belongs to.
-     * @param bool   $unique (Optional) Whether to avoid scheduling if an identical action is already pending.
+     * Action Scheduler group slug for all Logify jobs.
      */
-    private static function schedule_action(string $hook, array $args = [], string $group = '', bool $unique = false): void
-    {
-        as_enqueue_async_action($hook, $args, $group, $unique);
-    }
-
-    public static function async_wp_login(string $user_login, WP_User $user)
-    {
-        // Enqueue async action for login.
-        self::schedule_action('middle_wp_login', [ $user_login, $user->ID ]);
-
-    }
+    private const GROUP = 'logify';
 
     /**
-     * Handles async login failure tracking.
-     *
-     * @param string   $username The username attempted.
-     * @param WP_Error $error    The login error object.
+     * Byte margin below the AS payload cap to treat options as large.
      */
-    public static function async_wp_login_failed(string $username, WP_Error $error)
-    {
-        $error_s = serialize($error); // Serialize error object.
-
-        self::schedule_action('middle_wp_login_failed', [$username, $error_s]); // Enqueue async action.
-
-    }
+    private const LARGE_OPTION_MARGIN = 600;
 
     /**
-     * Handles async logout tracking.
-     *
-     * @param int $user_id The ID of the user logging out.
+     * Tracks whether any changes occurred during the request that need logging
      */
-    public static function async_wp_logout(int $user_id)
-    {
-        self::schedule_action('middle_wp_logout', [$user_id]); // Enqueue async action for logout.
-    }
+    private static array $changes = [
+        'media' => false,
+        'option' => false,
+        'post' => false,
+        'user' => false,
+        'widget' => false
+    ];
 
     /**
-     * Handles async WordPress load tracking.
+     * Request-scoped identifier so option updates and their shutdown flush stay grouped together.
      */
-    public static function async_wp_loaded()
+    private static ?string $optionBatchId = null;
+
+    /**
+     * Mark a specific type as having changes that need logging
+     */
+    public static function mark_changed(string $type): void
     {
-        if (did_action('init') && function_exists('as_has_scheduled_action') && !as_has_scheduled_action('middle_wp_loaded')) {
-            //Get Current User
-            $acting_user_id = get_current_user_id();
-            self::schedule_action('middle_wp_loaded', [$acting_user_id]); // Enqueue async action for WordPress loaded.
+        if (isset(self::$changes[$type])) {
+            self::$changes[$type] = true;
         }
     }
 
     /**
-     * Handles async user registration tracking.
+     * Schedule an async action.
      *
-     * @param int   $user_id  The ID of the registered user.
-     * @param array $userdata The user data array.
+     * Keep this low-level and side effect free. Do not append request-unique values here unless required.
+     *
+     * @param string $hook       Action Scheduler hook name.
+     * @param array  $args       Arguments passed to the action callback.
+     * @param bool   $includeIp  Whether to append the client IP as the last argument.
+     *
+     * @return void
      */
-    public static function async_user_register(int $user_id, array $userdata)
+    private static function scheduleAction(string $hook, array $args = [], bool $includeIp = false): void
     {
-        self::schedule_action('middle_user_register', [$user_id, $userdata]); // Enqueue async action for user registration.
+        if ($includeIp) {
+            $args[] = User_Utility::get_ip();
+        }
+
+        // Unique flag is false here. Dedupe is handled by scheduleUnique.
+        AS_Guard::enqueue_async($hook, $args, self::GROUP, false);
     }
 
     /**
-     * Handles async user deletion tracking.
+     * Schedule an async action only if an identical one is not already pending.
      *
-     * @param int      $user_id  The ID of the user being deleted.
-     * @param int|null $reassign The user ID to reassign posts to, if applicable.
-     * @param WP_User  $user     The user object before deletion.
+     * The IP address is captured at enqueue time but is NOT part of the deduplication key.
+     * This ensures that identical actions triggered at different times/IPs are deduplicated.
+     *
+     * @param string $hook      Action Scheduler hook name.
+     * @param array  $args      Arguments that define uniqueness for this action.
+     * @param bool   $includeIp Whether to append the client IP as the last argument.
+     *
+     * @return void
      */
-    public static function async_delete_user(int $user_id, ?int $reassign, WP_User $user)
+    private static function scheduleUnique(string $hook, array $args = [], bool $includeIp = false): void
     {
-        $serialize_user = serialize($user); // Serialize user object.
-        self::schedule_action('middle_delete_user', [$user_id, $reassign, $serialize_user]); // Enqueue async action for user deletion.
+        if (function_exists('as_next_scheduled_action')) {
+            if (as_next_scheduled_action($hook, $args, self::GROUP)) {
+                return;
+            }
+        }
+
+        // Add IP after dedup check so it doesn't affect uniqueness matching.
+        if ($includeIp) {
+            $args[] = User_Utility::get_ip();
+        }
+
+        AS_Guard::enqueue_async($hook, $args, self::GROUP, true);
+    }
+
+    /* =======================================================================
+     * Authentication
+     * ======================================================================= */
+
+    /**
+     * Track successful login.
+     *
+     * @param string  $user_login Username.
+     * @param WP_User $user       User object.
+     *
+     * @return void
+     */
+    public static function async_wp_login(string $user_login, WP_User $user): void
+    {
+        self::scheduleAction('middle_wp_login', [$user_login, $user->ID], true);
     }
 
     /**
-     * Handles async user profile update tracking.
+     * Track failed login.
      *
-     * @param int     $user_id  The ID of the user being updated.
-     * @param WP_User $user     The updated user object.
-     * @param array   $userdata The updated user data array.
+     * @param string   $username Attempted username.
+     * @param WP_Error $error    Login error.
+     *
+     * @return void
      */
-    public static function async_profile_update(int $user_id, WP_User $user, array $userdata)
+    public static function async_wp_login_failed(string $username, WP_Error $error): void
     {
-        $serialize_user = serialize($user); // Serialize user object.
-        self::schedule_action('middle_profile_update', [$user_id, $serialize_user, $userdata]); // Enqueue async action.
+        self::scheduleAction('middle_wp_login_failed', [$username, serialize($error)], true);
     }
 
     /**
-     * Handles async user metadata update tracking.
+     * Track logout.
      *
-     * @param int    $meta_id    The ID of the metadata.
-     * @param int    $user_id    The ID of the user.
-     * @param string $meta_key   The metadata key.
-     * @param mixed  $meta_value The metadata value.
+     * @param int $user_id User ID.
+     *
+     * @return void
      */
-    public static function async_update_user_meta(int $meta_id, int $user_id, string $meta_key, mixed $meta_value)
+    public static function async_wp_logout(int $user_id): void
     {
-        self::schedule_action('middle_update_user_meta', [$meta_id, $user_id, $meta_key, $meta_value]); // Enqueue async action.
+        self::scheduleAction('middle_wp_logout', [$user_id], true);
     }
 
     /**
-     * Handles async WordPress shutdown event tracking.
-     */
-    public static function async_shutdown_media()
-    {
-        self::schedule_action('middle_shutdown_media'); // Enqueue async action for shutdown media.
-    }
-    /**
-     * Tracks WordPress shutdown event for options.
+     * Track WordPress loaded event once.
      *
-     * No parameters or return value.
+     * @return void
      */
+    public static function async_wp_loaded(): void
+    {
+        if (did_action('init') && function_exists('as_has_scheduled_action') && !as_has_scheduled_action('middle_wp_loaded', [], self::GROUP)) {
+            $actingUserId = get_current_user_id();
+            self::scheduleUnique('middle_wp_loaded', [$actingUserId]);
+        }
+    }
+
+    /* =======================================================================
+     * Shutdown events, previously the main source of queue flood
+     * ======================================================================= */
+
+    /** @return void */
+    public static function async_shutdown_media(): void
+    {
+        if (self::$changes['media']) {
+            self::scheduleUnique('middle_shutdown_media');
+        }
+    }
+
+    /** @return void */
     public static function async_shutdown_option(): void
     {
-        // Enqueues an async action for tracking option shutdown event
-        self::schedule_action('middle_shutdown_option');
+        if (self::$changes['option']) {
+            $batchId = self::getOptionBatchId();
+            self::scheduleUnique('middle_shutdown_option', [$batchId]);
+        }
     }
 
-    /**
-     * Tracks WordPress shutdown event for posts.
-     *
-     * No parameters or return value.
-     */
+    /** @return void */
     public static function async_shutdown_post(): void
     {
-        // Enqueues an async action for tracking post shutdown event
-        self::schedule_action('middle_shutdown_post');
+        if (self::$changes['post']) {
+            self::scheduleUnique('middle_shutdown_post');
+        }
     }
 
-    /**
-     * Tracks WordPress shutdown event for users.
-     *
-     * No parameters or return value.
-     */
+    /** @return void */
     public static function async_shutdown_user(): void
     {
-        // Enqueues an async action for tracking user shutdown event
-        self::schedule_action('middle_shutdown_user');
+        if (self::$changes['user']) {
+            self::scheduleUnique('middle_shutdown_user');
+        }
     }
 
-    /**
-     * Tracks WordPress shutdown event for widgets.
-     *
-     * No parameters or return value.
-     */
+    /** @return void */
     public static function async_shutdown_widget(): void
     {
-        // Enqueues an async action for tracking widget shutdown event
-        self::schedule_action('middle_shutdown_widget');
+        if (self::$changes['widget']) {
+            self::scheduleUnique('middle_shutdown_widget', [], true);
+        }
+    }
+
+    /* =======================================================================
+     * Users
+     * ======================================================================= */
+
+    /**
+     * Track user registration.
+     *
+     * @param int   $user_id  User ID.
+     * @param array $userdata User data.
+     *
+     * @return void
+     */
+    public static function async_user_register(int $user_id, array $userdata): void
+    {
+        self::scheduleAction('middle_user_register', [$user_id, $userdata], true);
     }
 
     /**
-     * Tracks updates to WordPress options.
+     * Track user deletion.
      *
-     * @param string $option           The name of the updated option.
-     * @param mixed  $old_option_value The old value of the option.
-     * @param mixed  $new_option_value The new value of the option.
+     * @param int       $user_id  Deleted user ID.
+     * @param int|null  $reassign Reassigned user ID.
+     * @param WP_User   $user     User object snapshot.
      *
-     * No return value.
+     * @return void
+     */
+    public static function async_delete_user(int $user_id, ?int $reassign, WP_User $user): void
+    {
+        self::scheduleAction('middle_delete_user', [$user_id, $reassign, serialize($user)], true);
+    }
+
+    /**
+     * Track profile update.
+     *
+     * WordPress passes the pre-update snapshot; we fetch the current DB row to capture new values.
+     *
+     * @param int     $user_id User ID.
+     * @param WP_User $user    User object before the update.
+     *
+     * @return void
+     */
+    public static function async_profile_update(int $user_id, WP_User $user): void
+    {
+        $actingUserId = get_current_user_id();
+        $new_user     = get_userdata($user_id);
+        $userdata     = $new_user instanceof WP_User ? (array) $new_user->data : array();
+
+        self::scheduleAction('middle_profile_update', [$user_id, serialize($user), $userdata, $actingUserId], true);
+    }
+
+    /**
+     * Track user meta update.
+     *
+     * @param int    $meta_id    Meta row ID.
+     * @param int    $user_id    User ID.
+     * @param string $meta_key   Meta key.
+     * @param mixed  $meta_value Meta value.
+     *
+     * @return void
+     */
+    public static function async_update_user_meta(int $meta_id, int $user_id, string $meta_key, mixed $meta_value): void
+    {
+        $actingUserId = get_current_user_id();
+        self::scheduleAction('middle_update_user_meta', [$meta_id, $user_id, $meta_key, $meta_value, $actingUserId], true);
+    }
+
+    /* =======================================================================
+     * Options and themes
+     * ======================================================================= */
+
+    /**
+     * Track option update once per value change triplet.
+     *
+     * @param string $option           Option name.
+     * @param mixed  $old_option_value Old value.
+     * @param mixed  $new_option_value New value.
+     *
+     * @return void
      */
     public static function async_updated_option(string $option, mixed $old_option_value, mixed $new_option_value): void
     {
-        if (!as_has_scheduled_action('middle_update_option'))
-            // Enqueues an async action for tracking option updates
-            self::schedule_action('middle_updated_option', [$option, $old_option_value, $new_option_value]);
+        if (!Option_Utility::should_track_option($option, $old_option_value, $new_option_value)) {
+            return;
+        }
+
+        $actingUserId = get_current_user_id();
+        $args         = [$option, $old_option_value, $new_option_value, $actingUserId];
+
+        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_updated_option', $args, self::GROUP)) {
+            self::scheduleUnique('middle_updated_option', $args, true);
+        }
     }
 
     /**
-     * Tracks theme load event.
+     * Track themes loaded once.
      *
-     * No parameters or return value.
+     * @return void
      */
     public static function async_load_themes(): void
     {
-        if (!as_has_scheduled_action('middle_load_themes'))
-            // Enqueues an async action for tracking theme load event
-            self::schedule_action('middle_load_themes');
+        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_load_themes', [], self::GROUP)) {
+            self::scheduleUnique('middle_load_themes');
+        }
     }
 
     /**
-     * Tracks theme installation event.
+     * Track theme install trigger.
      *
-     * No parameters or return value.
+     * @return void
      */
     public static function async_load_theme_install(): void
     {
-        // Enqueues an async action for tracking theme installation event
-        self::schedule_action('middle_load_theme_install');
+        self::scheduleUnique('middle_load_theme_install');
     }
 
     /**
-     * Handle theme switch asynchronously.
+     * Track theme switch.
      *
-     * @param string   $new_name  The name of the new theme.
-     * @param WP_Theme $new_theme The WP_Theme object of the new theme.
-     * @param WP_Theme $old_theme The WP_Theme object of the old theme.
-     */
-    public static function async_switch_theme(string $new_name, WP_Theme $new_theme, WP_Theme $old_theme)
-    {
-        // Serialize the new theme object for storage or processing.
-        $serialize_new_theme = serialize($new_theme);
-        $serialize_old_theme = serialize($old_theme);
-
-        // Enqueue an asynchronous action to handle the theme switch.
-        self::schedule_action('middle_switch_theme', [$new_name, $serialize_new_theme, $serialize_old_theme]);
-    }
-
-    /**
-     * Handle theme deletion asynchronously.
+     * @param string   $new_name  New theme name.
+     * @param WP_Theme $new_theme New theme object.
+     * @param WP_Theme $old_theme Old theme object.
      *
-     * @param string $stylesheet The stylesheet name of the theme to delete.
+     * @return void
      */
-    public static function async_delete_theme(string $stylesheet)
+    public static function async_switch_theme(string $new_name, WP_Theme $new_theme, WP_Theme $old_theme): void
     {
-        // Enqueue an asynchronous action to handle the theme deletion.
-        self::schedule_action('middle_delete_theme', [$stylesheet]);
-    }
-
-    /**
-     * Handle term creation asynchronously.
-     *
-     * @param int    $term_id   The term ID.
-     * @param int    $tt_id     The term taxonomy ID.
-     * @param string $taxonomy  The taxonomy for the term.
-     * @param array  $args      Additional arguments for the term.
-     */
-    public static function async_created_term(int $term_id, int $tt_id, string $taxonomy, array $args)
-    {
-        // Enqueue an asynchronous action to handle the term creation.
-        self::schedule_action('middle_created_term', [$term_id, $tt_id, $taxonomy, $args]);
-    }
-
-    /**
-     * Handle term editing asynchronously.
-     *
-     * @param int    $term_id   The term ID.
-     * @param string $taxonomy  The taxonomy for the term.
-     * @param array  $args      The arguments for the updated term.
-     */
-    public static function async_edit_terms(int $term_id, string $taxonomy, array $args)
-    {
-        // Enqueue an asynchronous action to handle the term editing.
-        self::schedule_action('middle_edit_terms', [$term_id, $taxonomy, $args]);
-    }
-
-    /**
-     * Handle pre-term deletion asynchronously.
-     *
-     * @param int    $term_id   The term ID.
-     * @param string $taxonomy  The taxonomy for the term.
-     */
-    public static function async_pre_delete_term(int $term_id, string $taxonomy)
-    {
-        // Enqueue an asynchronous action to handle the pre-deletion of the term.
-        self::schedule_action('middle_pre_delete_term', [$term_id, $taxonomy]);
-    }
-
-    /**
-     * Handle post saving asynchronously.
-     *
-     * @param int    $post_id   The ID of the post being saved.
-     * @param WP_Post $post     The WP_Post object of the post being saved.
-     * @param bool   $update    Flag indicating if this is an update or new post.
-     */
-    public static function async_save_post(int $post_id, WP_Post $post, bool $update)
-    {
-        // Serialize the post object for storage or processing.
-        $serialize_post = serialize($post);
-
-        //Get current User ID
-        $acting_user_id = get_current_user_id();
-
-        // Enqueue an asynchronous action to handle the post save.
-        if (!as_has_scheduled_action('middle_save_post', [$post_id, $serialize_post, $update, $acting_user_id])) {
-            self::schedule_action('middle_save_post', [$post_id, $serialize_post, $update, $acting_user_id]);
-        }
-    }
-
-    /**
-     * Handle pre-post update asynchronously.
-     *
-     * @param int   $post_id The ID of the post being updated.
-     * @param array $data    The post data being updated.
-     */
-    public static function async_pre_post_update(int $post_id, array $data)
-    {
-        //Get current User ID
-        $acting_user_id = get_current_user_id();
-        // Enqueue an asynchronous action to handle the pre-update of the post.
-        if (!as_has_scheduled_action('middle_pre_post_update', [$post_id, $data, $acting_user_id])) {
-            self::schedule_action('middle_pre_post_update', [$post_id, $data, $acting_user_id]);
-        }
-    }
-    /**
-     * Handle post update asynchronously.
-     *
-     * @param int     $post_id        The ID of the updated post.
-     * @param WP_Post $post_after     The WP_Post object after the update.
-     * @param WP_Post $post_before    The WP_Post object before the update.
-     */
-    public static function async_post_updated(int $post_id, WP_Post $post_after, WP_Post $post_before)
-    {
-        // Serialize the post_after and post_before objects for processing.
-        $serialize_post_after = serialize($post_after);
-        $serialize_post_before = serialize($post_before);
-
-        //Get current User ID
-        $acting_user_id = get_current_user_id();
-
-        // Enqueue an asynchronous action to handle the post update.
-        if (!as_has_scheduled_action('middle_post_updated', [$post_id, $serialize_post_after, $serialize_post_before, $acting_user_id])) {
-            self::schedule_action('middle_post_updated', [$post_id, $serialize_post_after, $serialize_post_before, $acting_user_id]);
-        }
-    }
-
-    /**
-     * Handle post meta update asynchronously.
-     *
-     * @param int    $meta_id   The ID of the meta.
-     * @param int    $post_id   The ID of the post.
-     * @param string $meta_key  The meta key.
-     * @param mixed  $meta_value The meta value.
-     */
-    public static function async_update_post_meta(int $meta_id, int $post_id, string $meta_key, mixed $meta_value)
-    {
-        //Get current User ID
-        $acting_user_id = get_current_user_id();
-        // Enqueue an asynchronous action to handle the post meta update.
-        if (!as_has_scheduled_action('middle_update_post_meta', [$meta_id, $post_id, $meta_key, $meta_value, $acting_user_id]))
-            self::schedule_action('middle_update_post_meta', [$meta_id, $post_id, $meta_key, $meta_value, $acting_user_id]);
-    }
-
-    /**
-     * Handle post status transition asynchronously.
-     *
-     * @param string  $new_status The new post status.
-     * @param string  $old_status The old post status.
-     * @param WP_Post $post       The WP_Post object of the post.
-     */
-    public static function async_transition_post_status(string $new_status, string $old_status, WP_Post $post)
-    {
-        // Serialize the post object for processing.
-        $serialize_post = serialize($post);
-
-        //Get current User ID
-        $acting_user_id = get_current_user_id();
-
-        // Enqueue an asynchronous action to handle the post status transition.
-        if (!as_has_scheduled_action('middle_transition_post_status', [$new_status, $old_status, $serialize_post, $acting_user_id]))
-            self::schedule_action('middle_transition_post_status', [$new_status, $old_status, $serialize_post, $acting_user_id]);
-    }
-
-    /**
-     * Handle pre-post deletion asynchronously.
-     *
-     * @param int    $post_id The ID of the post to be deleted.
-     * @param WP_Post $post   The WP_Post object of the post to be deleted.
-     */
-    public static function async_before_delete_post(int $post_id, WP_Post $post)
-    {
-        // Serialize the post object for processing.
-        $serialize_post = serialize($post);
-        //Get current User ID
-        $acting_user_id = get_current_user_id();
-
-        // Enqueue an asynchronous action to handle the pre-post deletion.
-        if (!as_has_scheduled_action('middle_before_delete_post', [$post_id, $serialize_post, $acting_user_id]))
-            self::schedule_action('middle_before_delete_post', [$post_id, $serialize_post, $acting_user_id]);
-    }
-
-    /**
-     * Handle post deletion asynchronously.
-     *
-     * @param int    $post_id The ID of the deleted post.
-     * @param WP_Post $post   The WP_Post object of the deleted post.
-     */
-    public static function async_delete_post(int $post_id, WP_Post $post)
-    {
-        // Serialize the post object for processing.
-        $serialize_post = serialize($post);
-
-        // Enqueue an asynchronous action to handle the post deletion.
-        self::schedule_action('middle_deleted_post', [$post_id, $serialize_post]);
-    }
-
-    /**
-     * Handle added term relationship asynchronously.
-     *
-     * @param int    $post_id   The ID of the post.
-     * @param int    $tt_id     The term taxonomy ID.
-     * @param string $taxonomy  The taxonomy of the term.
-     */
-    public static function async_added_term_relationship(int $post_id, int $tt_id, string $taxonomy)
-    {
-        // Enqueue an asynchronous action to handle the added term relationship.
-        self::schedule_action('middle_added_term_relationship', [$post_id, $tt_id, $taxonomy]);
-    }
-
-    /**
-     * Handle post insertion asynchronously after the post is saved.
-     *
-     * @param int     $post_id       The ID of the inserted post.
-     * @param WP_Post $post          The WP_Post object of the inserted post.
-     * @param bool    $update        Flag indicating whether this is an update or new post.
-     * @param WP_Post|null $post_before The WP_Post object before the post was saved (optional).
-     */
-    public static function async_wp_after_insert_post(int $post_id, WP_Post $post, bool $update, ?WP_Post $post_before)
-    {
-        // Serialize the post and post_before objects for processing.
-        $serialize_post = serialize($post);
-        $serialize_post_before = serialize($post_before);
-
-        //Get current User ID
-        $acting_user_id = get_current_user_id();
-
-        // Enqueue an asynchronous action to handle the post insert event.
-        self::schedule_action('middle_wp_after_insert_post', [$post_id, $serialize_post, $update, $serialize_post_before, $acting_user_id]);
-    }
-
-    /**
-     * Handle deleted term relationships asynchronously.
-     *
-     * @param int   $post_id  The ID of the post.
-     * @param array $tt_ids   An array of term taxonomy IDs.
-     * @param string $taxonomy The taxonomy of the term.
-     */
-    public static function async_deleted_term_relationships(int $post_id, array $tt_ids, string $taxonomy)
-    {
-        // Enqueue an asynchronous action to handle the deleted term relationships.
-        self::schedule_action('middle_deleted_term_relationships', [$post_id, $tt_ids, $taxonomy]);
-    }
-
-    /**
-     * Handle the theme upgrader process completion asynchronously.
-     *
-     * @param WP_Upgrader $upgrader    The WP_Upgrader instance handling the upgrade.
-     * @param array       $hook_extra  Additional hook data for processing.
-     */
-    public static function async_upgrader_process_complete_theme(WP_Upgrader $upgrader, array $hook_extra)
-    {
-        // Filter only the necessary fields to avoid transferring large data.
-        $upgrader_data = (object) [
-            'new_theme_data' => $upgrader->new_theme_data,
-            'result' => null,
-            'skin' => null,
+        // Pass small payloads instead of serializing WP_Theme objects
+        $new_payload = [
+            'name'       => (string) $new_theme->get('Name'),
+            'stylesheet' => (string) $new_theme->get_stylesheet(),
+            'template'   => (string) $new_theme->get_template(),
+        ];
+        $old_payload = [
+            'name'       => (string) $old_theme->get('Name'),
+            'stylesheet' => (string) $old_theme->get_stylesheet(),
+            'template'   => (string) $old_theme->get_template(),
         ];
 
-        // Check if the upgrader result is available and filter the relevant information.
-        if (isset($upgrader->result)) {
-            $upgrader_data->result = [
-                'clear_destination' => $upgrader->result['clear_destination'],
-            ];
+        self::scheduleAction(
+            'middle_switch_theme',
+            [$new_name, $new_payload, $old_payload],
+            true // include client IP
+        );
+    }
+
+    /**
+     * Track theme deletion.
+     *
+     * @param string $stylesheet Theme stylesheet slug.
+     *
+     * @return void
+     */
+    public static function async_delete_theme(string $stylesheet): void
+    {
+        self::scheduleAction('middle_delete_theme', [$stylesheet], true);
+    }
+
+    /* =======================================================================
+     * Posts and terms
+     * ======================================================================= */
+
+    /**
+     * Track save post once per unique set.
+     *
+     * @param int     $post_id Post ID.
+     * @param WP_Post $post    Post object.
+     * @param bool    $update  True if update, false if new.
+     *
+     * @return void
+     */
+    public static function async_save_post(int $post_id, WP_Post $post, bool $update): void
+    {
+        self::mark_changed('post');
+        $userId     = get_current_user_id();
+        $serialized = self::postFilteredData($post);
+
+        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_save_post', [$post_id, $serialized, $update, $userId], self::GROUP)) {
+            self::scheduleUnique('middle_save_post', [$post_id, $serialized, $update, $userId], true);
         }
-
-        // Create an object for skin data related to the theme upgrade.
-        $upgrader_data->skin = (object) [
-            'theme_info' => $upgrader->skin->theme_info
-        ];
-
-        // Enqueue an asynchronous action to handle the theme upgrade completion.
-        self::schedule_action('middle_upgrader_process_complete_theme', [$upgrader_data, $hook_extra]);
     }
+
     /**
-     * Handle the plugin upgrader process completion asynchronously.
+     * Track pre post update once per unique set.
      *
-     * @param WP_Upgrader $upgrader   The WP_Upgrader instance handling the upgrade.
-     * @param array       $hook_extra Extra hook data for processing.
+     * @param int   $post_id Post ID.
+     * @param array $data    Update payload.
+     *
+     * @return void
      */
-    public static function async_upgrader_process_complete_plugin(WP_Upgrader $upgrader, array $hook_extra)
+    public static function async_pre_post_update(int $post_id, array $data): void
     {
-        // Filter only the necessary fields to avoid transferring large data.
-        $upgrader_data = (object) [
-            'new_plugin_data' => $upgrader->new_plugin_data,
-            'result' => null,
-            'skin' => null,
-        ];
-        // Check if the upgrader result is available and filter the relevant information.
-        if (isset($upgrader->result)) {
-            $upgrader_data->result = [
-                'clear_destination' => $upgrader->result['clear_destination'],
-            ];
+        $userId = get_current_user_id();
+
+        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_pre_post_update', [$post_id, $data, $userId], self::GROUP)) {
+            self::scheduleUnique('middle_pre_post_update', [$post_id, $data, $userId], true);
         }
+    }
 
-        // Create an object for skin data related to the plugin upgrade.
-        $upgrader_data->skin = (object) [
-            'plugin_info' => $upgrader->skin->plugin_info
+    /**
+     * Track post updated once per unique set.
+     *
+     * @param int     $post_id     Post ID.
+     * @param WP_Post $post_after  Post after update.
+     * @param WP_Post $post_before Post before update.
+     *
+     * @return void
+     */
+    public static function async_post_updated(int $post_id, WP_Post $post_after, WP_Post $post_before): void
+    {
+        $after  = self::postFilteredData($post_after);
+        $before = self::postFilteredData($post_before);
+        $userId = get_current_user_id();
+
+        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_post_updated', [$post_id, $after, $before, $userId], self::GROUP)) {
+            self::scheduleUnique('middle_post_updated', [$post_id, $after, $before, $userId], true);
+        }
+    }
+
+    /**
+     * Track post meta update once per unique set.
+     *
+     * @param int    $meta_id   Meta row ID.
+     * @param int    $post_id   Post ID.
+     * @param string $meta_key  Meta key.
+     * @param mixed  $meta_value Meta value.
+     *
+     * @return void
+     */
+    public static function async_update_post_meta(int $meta_id, int $post_id, string $meta_key, mixed $meta_value): void
+    {
+        $userId = get_current_user_id();
+
+        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_update_post_meta', [$meta_id, $post_id, $meta_key, $meta_value, $userId], self::GROUP)) {
+            self::scheduleUnique('middle_update_post_meta', [$meta_id, $post_id, $meta_key, $meta_value, $userId], true);
+        }
+    }
+
+    /**
+     * Track post status transition once per unique set.
+     *
+     * @param string  $new_status New status.
+     * @param string  $old_status Old status.
+     * @param WP_Post $post       Post object.
+     *
+     * @return void
+     */
+    public static function async_transition_post_status(string $new_status, string $old_status, WP_Post $post): void
+    {
+        $serialized = self::postFilteredData($post);
+        $userId     = get_current_user_id();
+
+        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_transition_post_status', [$new_status, $old_status, $serialized, $userId], self::GROUP)) {
+            self::scheduleUnique('middle_transition_post_status', [$new_status, $old_status, $serialized, $userId], true);
+        }
+    }
+
+    /**
+     * Track pre delete post once per unique set.
+     *
+     * @param int     $post_id Post ID.
+     * @param WP_Post $post    Post object.
+     *
+     * @return void
+     */
+    public static function async_before_delete_post(int $post_id, WP_Post $post): void
+    {
+        $serialized = self::postFilteredData($post);
+        $userId     = get_current_user_id();
+
+        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_before_delete_post', [$post_id, $serialized, $userId], self::GROUP)) {
+            self::scheduleUnique('middle_before_delete_post', [$post_id, $serialized, $userId], true);
+        }
+    }
+
+    /**
+     * Track post deletion.
+     *
+     * @param int     $post_id Post ID.
+     * @param WP_Post $post    Post object.
+     *
+     * @return void
+     */
+    public static function async_delete_post(int $post_id, WP_Post $post): void
+    {
+        $actingUserId = get_current_user_id();
+        self::scheduleAction('middle_delete_post', [$post_id, self::postFilteredData($post), $actingUserId], true);
+    }
+
+    /**
+     * Track added term relationship.
+     *
+     * @param int    $post_id  Post ID.
+     * @param int    $tt_id    Term taxonomy ID.
+     * @param string $taxonomy Taxonomy slug.
+     *
+     * @return void
+     */
+    public static function async_added_term_relationship(int $post_id, int $tt_id, string $taxonomy): void
+    {
+        self::scheduleAction('middle_added_term_relationship', [$post_id, $tt_id, $taxonomy]);
+    }
+
+    /**
+     * Track post insert after save.
+     *
+     * @param int          $post_id     Post ID.
+     * @param WP_Post      $post        Post object.
+     * @param bool         $update      Update flag.
+     * @param WP_Post|null $post_before Previous post or null.
+     *
+     * @return void
+     */
+    public static function async_wp_after_insert_post(int $post_id, WP_Post $post, bool $update, ?WP_Post $post_before): void
+    {
+        $serialized       = self::postFilteredData($post);
+        $serializedBefore = self::postFilteredData($post_before);
+        $userId           = get_current_user_id();
+
+        self::scheduleAction('middle_wp_after_insert_post', [$post_id, $serialized, $update, $serializedBefore, $userId], true);
+    }
+
+    /**
+     * Track deleted term relationships.
+     *
+     * @param int    $post_id  Post ID.
+     * @param array  $tt_ids   Term taxonomy IDs.
+     * @param string $taxonomy Taxonomy slug.
+     *
+     * @return void
+     */
+    public static function async_deleted_term_relationships(int $post_id, array $tt_ids, string $taxonomy): void
+    {
+        self::scheduleAction('middle_deleted_term_relationships', [$post_id, $tt_ids, $taxonomy]);
+    }
+
+    /**
+     * Track term creation.
+     *
+     * @param int    $term_id  Term ID.
+     * @param int    $tt_id    Term taxonomy ID.
+     * @param string $taxonomy Taxonomy slug.
+     * @param array  $args     Additional args.
+     *
+     * @return void
+     */
+    public static function async_created_term(int $term_id, int $tt_id, string $taxonomy, array $args): void
+    {
+        $actingUserId = get_current_user_id();
+        self::scheduleAction('middle_created_term', [$term_id, $tt_id, $taxonomy, $args, $actingUserId], true);
+    }
+
+    /**
+     * Track term edit.
+     *
+     * @param int    $term_id  Term ID.
+     * @param string $taxonomy Taxonomy slug.
+     * @param array  $args     Updated args.
+     *
+     * @return void
+     */
+    public static function async_edit_terms(int $term_id, string $taxonomy, array $args): void
+    {
+        $actingUserId = get_current_user_id();
+        self::scheduleAction('middle_edit_terms', [$term_id, $taxonomy, $args, $actingUserId], true);
+    }
+
+    /**
+     * Track pre delete term.
+     *
+     * @param int    $term_id  Term ID.
+     * @param string $taxonomy Taxonomy slug.
+     *
+     * @return void
+     */
+    public static function async_pre_delete_term(int $term_id, string $taxonomy): void
+    {
+        $actingUserId = get_current_user_id();
+        self::scheduleAction('middle_pre_delete_term', [$term_id, $taxonomy, $actingUserId], true);
+    }
+
+    /* =======================================================================
+     * Media
+     * ======================================================================= */
+
+	/**
+	 * Track add attachment.
+	 *
+	 * @param int $post_id Attachment ID.
+	 *
+	 * @return void
+	 */
+	public static function async_add_attachment(int $post_id): void
+	{
+		self::mark_changed('media');
+		$actingUserId = get_current_user_id();
+		self::scheduleAction('middle_add_attachment', [$post_id, $actingUserId], true);
+	}    
+    
+    /**
+     * Track added post meta.
+     *
+     * @param int    $post_id   Post ID.
+     * @param string $meta_key  Meta key.
+     * @param mixed  $meta_value Meta value.
+     *
+     * @return void
+     */
+    public static function async_add_post_meta(int $post_id, string $meta_key, mixed $meta_value): void
+    {
+        $actingUserId = get_current_user_id();
+        self::scheduleAction('middle_add_post_meta', [$post_id, $meta_key, $meta_value, $actingUserId], true);
+    }
+
+	/**
+	 * Track attachment update.
+	 *
+	 * @param int     $post_id     Attachment ID.
+	 * @param WP_Post $post_after  After update.
+	 * @param WP_Post $post_before Before update.
+	 *
+	 * @return void
+	 */
+    public static function async_attachment_updated(int $post_id, WP_Post $post_after, WP_Post $post_before): void
+    {
+        self::mark_changed('media');
+        $actingUserId = get_current_user_id();
+        self::scheduleAction(
+            'middle_attachment_updated',
+            [$post_id, self::postFilteredData($post_after), self::postFilteredData($post_before), $actingUserId],
+            true
+        );
+    }
+
+    /**
+     * Track attachment deletion.
+     *
+     * @param int     $post_id Attachment ID.
+     * @param WP_Post $post    Attachment object.
+     *
+     * @return void
+     */
+    public static function async_delete_attachment(int $post_id, WP_Post $post): void
+    {
+        self::mark_changed('media');
+        $actingUserId = get_current_user_id();
+        self::scheduleAction('middle_delete_attachment', [$post_id, self::postFilteredData($post), $actingUserId], true);
+    }    /* =======================================================================
+     * Core, plugins, comments
+     * ======================================================================= */
+
+    /**
+     * Track successful core update.
+     *
+     * @param string $wp_version New WP version.
+     *
+     * @return void
+     */
+    public static function async_core_updated_successfully(string $wp_version): void
+    {
+        self::scheduleAction('middle_core_updated_successfully', [$wp_version]);
+    }
+
+    /**
+     * Track theme upgrader completion.
+     *
+     * @param WP_Upgrader $upgrader   Upgrader instance.
+     * @param array       $hook_extra Extra data.
+     *
+     * @return void
+     */
+    public static function async_upgrader_process_complete_theme(WP_Upgrader $upgrader, array $hook_extra): void
+    {
+        $payload = (object) [
+            'new_theme_data' => isset($upgrader->new_theme_data) ? $upgrader->new_theme_data : null,
+            'result'         => isset($upgrader->result) ? [
+                'clear_destination' => $upgrader->result['clear_destination'] ?? null,
+            ] : null,
+            'skin'           => (object) [
+                'theme_info' => isset($upgrader->skin->theme_info) ? $upgrader->skin->theme_info : null,
+            ],
         ];
 
-        //Get Acting User ID
-        $acting_user_id = get_current_user_id();
-        // Enqueue an asynchronous action to handle the plugin upgrade completion.
-        self::schedule_action('middle_upgrader_process_complete_plugin', [$upgrader_data, $hook_extra, $acting_user_id]);
+        $userId = get_current_user_id();
+        self::scheduleAction('middle_upgrader_process_complete_theme', [$payload, $hook_extra, $userId], true);
     }
 
     /**
-     * Handle plugin activation asynchronously.
+     * Track plugin upgrader completion.
      *
-     * @param string $plugin_file   The plugin file path.
-     * @param bool   $network_wide  Flag indicating if the plugin is activated network-wide.
+     * @param WP_Upgrader $upgrader   Upgrader instance.
+     * @param array       $hook_extra Extra data.
+     *
+     * @return void
      */
-    public static function async_activate_plugin(string $plugin_file, bool $network_wide)
+    public static function async_upgrader_process_complete_plugin(WP_Upgrader $upgrader, array $hook_extra): void
     {
-        // Enqueue an asynchronous action to handle the plugin activation.
-        self::schedule_action('middle_activate_plugin', [$plugin_file, $network_wide]);
+        $payload = (object) [
+            'new_plugin_data' => isset($upgrader->new_plugin_data) ? $upgrader->new_plugin_data : null,
+            'result'          => isset($upgrader->result) ? [
+                'clear_destination' => $upgrader->result['clear_destination'] ?? null,
+            ] : null,
+            'skin'            => (object) [
+                'plugin_info' => isset($upgrader->skin->plugin_info) ? $upgrader->skin->plugin_info : null,
+            ],
+        ];
+
+        $userId = get_current_user_id();
+
+        self::scheduleAction('middle_upgrader_process_complete_plugin', [$payload, $hook_extra, $userId], true);
     }
 
     /**
-     * Handle plugin deactivation asynchronously.
+     * Track plugin activation.
      *
-     * @param string $plugin_file           The plugin file path.
-     * @param bool   $network_deactivating  Flag indicating if the plugin is deactivated network-wide.
+     * @param string $plugin_file Plugin file.
+     * @param bool   $network_wide Network wide flag.
+     *
+     * @return void
      */
-    public static function async_deactivate_plugin(string $plugin_file, bool $network_deactivating)
+    public static function async_activate_plugin(string $plugin_file, bool $network_wide): void
     {
-        // Enqueue an asynchronous action to handle the plugin deactivation.
-        self::schedule_action('middle_deactivate_plugin', [$plugin_file, $network_deactivating]);
+        $actingUserId = get_current_user_id();
+        self::scheduleAction('middle_activate_plugin', [$plugin_file, $network_wide, $actingUserId], true);
     }
 
     /**
-     * Handle plugin deletion asynchronously.
+     * Track plugin deactivation.
      *
-     * @param string $plugin_file The plugin file path.
+     * @param string $plugin_file         Plugin file.
+     * @param bool   $network_deactivating Network deactivating flag.
+     *
+     * @return void
      */
-    public static function async_delete_plugin(string $plugin_file)
+    public static function async_deactivate_plugin(string $plugin_file, bool $network_deactivating): void
     {
-        // Load the plugin by its file path.
+        $actingUserId = get_current_user_id();
+        self::scheduleAction('middle_deactivate_plugin', [$plugin_file, $network_deactivating, $actingUserId], true);
+    }
+
+    /**
+     * Track plugin deletion.
+     *
+     * @param string $plugin_file Plugin file.
+     *
+     * @return void
+     */
+    public static function async_delete_plugin(string $plugin_file): void
+    {
         $plugin = Plugin_Utility::load_by_file($plugin_file);
-
-        // Enqueue an asynchronous action to handle the plugin deletion.
-        self::schedule_action('middle_delete_plugin', [$plugin]);
+        $actingUserId = get_current_user_id();
+        self::scheduleAction('middle_delete_plugin', [$plugin, $actingUserId], true);
     }
 
     /**
-     * Handle pre-uninstallation of a plugin asynchronously.
+     * Track plugin pre uninstall.
      *
-     * @param string $plugin_file           The plugin file path.
-     * @param array  $uninstallable_plugins List of plugins that are uninstallable.
+     * @param string $plugin_file           Plugin file.
+     * @param array  $uninstallable_plugins Uninstallable plugin list.
+     *
+     * @return void
      */
-    public static function async_pre_uninstall_plugin(string $plugin_file, array $uninstallable_plugins)
+    public static function async_pre_uninstall_plugin(string $plugin_file, array $uninstallable_plugins): void
     {
-        // Load the plugin by its file path.
         $plugin = Plugin_Utility::load_by_file($plugin_file);
-
-        // Enqueue an asynchronous action to handle the pre-uninstallation of the plugin.
-        self::schedule_action('middle_pre_uninstall_plugin', [$plugin, $uninstallable_plugins]);
+        $actingUserId = get_current_user_id();
+        self::scheduleAction('middle_pre_uninstall_plugin', [$plugin, $uninstallable_plugins, $actingUserId], true);
     }
 
     /**
-     * Handle plugin option update asynchronously.
+     * Track plugin option update once per unique set.
      *
-     * @param string $option   The option name.
-     * @param mixed  $old_value The old value of the option.
-     * @param mixed  $value    The new value of the option.
+     * @param string $option Option name.
+     * @param mixed  $old_value Old value.
+     * @param mixed  $value New value.
+     *
+     * @return void
      */
-    public static function async_update_option_plugin(string $option, mixed $old_value, mixed $value)
+    public static function async_update_option_plugin(string $option, mixed $old_value, mixed $value): void
     {
-        if (!as_has_scheduled_action('middle_update_option_plugin', [$option, $old_value, $value]))
-            // Enqueue an asynchronous action to handle the plugin option update.
-            self::schedule_action('middle_update_option_plugin', [$option, $old_value, $value]);
+        if (!Option_Utility::should_track_option($option, $old_value, $value)) {
+            return;
+        }
+
+        $actingUserId = get_current_user_id();
+        
+        if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action('middle_update_option_plugin', [$option, $old_value, $value, $actingUserId], self::GROUP)) {
+            self::scheduleUnique('middle_update_option_plugin', [$option, $old_value, $value, $actingUserId], true);
+        }
     }
 
     /**
-     * Handle general option update asynchronously.
+     * Track general option update once per unique set.
      *
-     * @param string $option   The option name.
-     * @param mixed  $old_value The old value of the option.
-     * @param mixed  $value    The new value of the option.
+     * Only runs for real settings, and only for options we actually care about.
+     *
+     * @param string $option    Option name.
+     * @param mixed  $old_value Old value.
+     * @param mixed  $value     New value.
+     *
+     * @return void
      */
-    public static function async_update_option_option(string $option, mixed $old_value, mixed $value)
+    public static function async_update_option_option(string $option, mixed $old_value, mixed $value): void
     {
-        //Get current User ID
-        $acting_user_id = get_current_user_id();
+        $is_widget_option = str_starts_with($option, 'widget_') || $option === 'sidebars_widgets';
 
-        if (!as_has_scheduled_action('middle_update_option_option', [$option, $old_value, $value, $acting_user_id]))
-            // Enqueue an asynchronous action to handle the general option update.
-            self::schedule_action('middle_update_option_option', [$option, $old_value, $value, $acting_user_id]);
+        if (! $is_widget_option && !Option_Utility::should_track_option($option, $old_value, $value)) {
+            return;
+        }
+
+        // Mark that this request had option changes worth logging.
+        self::mark_changed('option');
+
+        $userId  = get_current_user_id();
+        $batchId = self::getOptionBatchId();
+
+        if (self::shouldCaptureOptionSynchronously($option, $old_value, $value)) {
+            Option_Tracker::capture_option_change_now($batchId, $option, $old_value, $value, $userId, User_Utility::get_ip());
+            return;
+        }
+
+        $args = [$batchId, $option, $old_value, $value, $userId];
+
+        if (
+            !function_exists('as_has_scheduled_action') ||
+            !as_has_scheduled_action('middle_update_option_option', $args, self::GROUP)
+        ) {
+            // Include client IP as last argument (not part of uniqueness key)
+            self::scheduleUnique('middle_update_option_option', $args, true);
+        }
     }
 
     /**
-     * Handle widget option update asynchronously.
-     *
-     * @param string $option   The option name.
-     * @param mixed  $old_value The old value of the option.
-     * @param mixed  $value    The new value of the option.
+     * Decide whether an option change should bypass async transport to avoid payload truncation.
      */
-    public static function async_update_option_widget(string $option, mixed $old_value, mixed $value)
+    private static function shouldCaptureOptionSynchronously(string $option, mixed $old_value, mixed $new_value): bool
     {
-        //Get current User ID
-        $acting_user_id = get_current_user_id();
-        if (!as_has_scheduled_action('middle_update_option_widget', [$option, $old_value, $value, $acting_user_id]))
-            // Enqueue an asynchronous action to handle the widget option update.
-            self::schedule_action('middle_update_option_widget', [$option, $old_value, $value, $acting_user_id]);
+        $lower = strtolower($option);
+        if (str_contains($lower, 'bricks')) {
+            return true;
+        }
+
+        $estimated = wp_json_encode([$old_value, $new_value]);
+        if ($estimated === false) {
+            return false;
+        }
+
+        $bytes = strlen($estimated);
+        $limit = AS_Guard::max_bytes() - self::LARGE_OPTION_MARGIN;
+
+        return $bytes > $limit;
     }
 
     /**
-     * Handle adding an attachment asynchronously.
-     *
-     * @param int $post_id The ID of the post the attachment is added to.
+     * Generate or reuse the unique option batch identifier for this request.
      */
-    public static function async_add_attachment(int $post_id)
+    private static function getOptionBatchId(): string
     {
-        // Enqueue an asynchronous action to handle adding an attachment.
-        self::schedule_action('middle_add_attachment', [$post_id]);
+        if (self::$optionBatchId === null) {
+            self::$optionBatchId = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : uniqid('logify_opt_', true);
+        }
+
+        return self::$optionBatchId;
     }
 
+
     /**
-     * Handle adding post meta asynchronously.
+     * Track widget option update once per unique set.
      *
-     * @param int    $post_id   The ID of the post.
-     * @param string $meta_key  The meta key.
-     * @param mixed  $meta_value The meta value.
+     * @param string $option    Option name.
+     * @param mixed  $old_value Previous value.
+     * @param mixed  $value     New value.
+     *
+     * @return void
      */
-    public static function async_add_post_meta(int $post_id, string $meta_key, mixed $meta_value)
+    public static function async_update_option_widget(string $option, mixed $old_value, mixed $value): void
     {
-        // Enqueue an asynchronous action to handle adding post meta.
-        self::schedule_action('middle_add_post_meta', [$post_id, $meta_key, $meta_value]);
-    }
-    /**
-     * Handle attachment update asynchronously.
-     *
-     * @param int     $post_id        The ID of the updated post.
-     * @param WP_Post $post_after     The WP_Post object after the update.
-     * @param WP_Post $post_before    The WP_Post object before the update.
-     */
-    public static function async_attachment_updated(int $post_id, WP_Post $post_after, WP_Post $post_before)
-    {
-        // Serialize the post_after and post_before objects for processing.
-        $serialize_post_after = serialize($post_after);
-        $serialize_post_before = serialize($post_before);
+        if (!Option_Utility::should_track_option($option, $old_value, $value)) {
+            return;
+        }
+        
+        $userId = get_current_user_id();
 
-        // Enqueue an asynchronous action to handle the attachment update.
-        self::schedule_action('middle_attachment_updated', [$post_id, $serialize_post_after, $serialize_post_before]);
+        if (
+            !function_exists('as_has_scheduled_action') ||
+            !as_has_scheduled_action('middle_update_option_widget', [$option, $old_value, $value, $userId], self::GROUP)
+        ) {
+            self::scheduleUnique('middle_update_option_widget', [$option, $old_value, $value, $userId], true);
+        }
     }
 
-    /**
-     * Handle attachment deletion asynchronously.
-     *
-     * @param int    $post_id The ID of the deleted post.
-     * @param WP_Post $post   The WP_Post object of the deleted post.
-     */
-    public static function async_delete_attachment(int $post_id, WP_Post $post)
-    {
-        // Serialize the post object for processing.
-        $serialize_post = serialize($post);
 
-        // Enqueue an asynchronous action to handle the attachment deletion.
-        self::schedule_action('middle_delete_attachment', [$post_id, $serialize_post]);
-    }
+    /* =======================================================================
+     * Comments, guarded by plugin setting
+     * ======================================================================= */
 
     /**
-     * Handle core WordPress update completion asynchronously.
+     * Track comment insert.
      *
-     * @param string $wp_version The new WordPress version.
-     */
-    public static function async_core_updated_successfully(string $wp_version)
-    {
-        // Enqueue an asynchronous action to handle the successful core update.
-        self::schedule_action('middle_core_updated_successfully', [$wp_version]);
-    }
-
-    /**
-     * Handle new comment insertion asynchronously.
+     * @param int        $id      Comment ID.
+     * @param WP_Comment $comment Comment object.
      *
-     * @param int       $id      The comment ID.
-     * @param WP_Comment $comment The WP_Comment object of the inserted comment.
+     * @return void
      */
-    public static function async_wp_insert_comment(int $id, WP_Comment $comment)
+    public static function async_wp_insert_comment(int $id, WP_Comment $comment): void
     {
         if (!Plugin_Settings::get_comment_tracking_state()) {
             return;
         }
-        // Serialize the comment object for processing.
-        $serialize_comment = serialize($comment);
 
-        // Enqueue an asynchronous action to handle the comment insertion.
-        self::schedule_action('middle_wp_insert_comment', [$id, $serialize_comment]);
+        self::scheduleAction('middle_wp_insert_comment', [$id, self::postFilteredData($comment)]);
     }
 
     /**
-     * Handle comment data update asynchronously.
+     * Track comment data update.
      *
-     * @param array|WP_Error $data       The comment data or error.
-     * @param array          $comment    The comment array.
-     * @param array          $commentarr The array of comment data.
+     * @param array|WP_Error $data       New data or error.
+     * @param array          $comment    Original comment array.
+     * @param array          $commentarr Extra data.
+     *
+     * @return void
      */
-    public static function async_wp_update_comment_data(array|WP_Error $data, array $comment, array $commentarr)
+    public static function async_wp_update_comment_data(array|WP_Error $data, array $comment, array $commentarr): void
     {
         if (!Plugin_Settings::get_comment_tracking_state()) {
             return;
         }
-        // Enqueue an asynchronous action to handle the comment data update.
-        self::schedule_action('middle_wp_update_comment_data', [$data, $comment, $commentarr]);
+
+        self::scheduleAction('middle_wp_update_comment_data', [$data, $comment, $commentarr]);
     }
 
     /**
-     * Handle comment edit asynchronously.
+     * Track comment edit.
      *
-     * @param int   $comment_id The ID of the edited comment.
-     * @param array $data       The edited comment data.
+     * @param int   $comment_id Comment ID.
+     * @param array $data       Edited data.
+     *
+     * @return void
      */
-    public static function async_edit_comment(int $comment_id, array $data)
+    public static function async_edit_comment(int $comment_id, array $data): void
     {
         if (!Plugin_Settings::get_comment_tracking_state()) {
             return;
         }
-        // Enqueue an asynchronous action to handle the comment editing.
-        self::schedule_action('middle_edit_comment', [$comment_id, $data]);
+
+        self::scheduleAction('middle_edit_comment', [$comment_id, $data]);
     }
 
     /**
-     * Handle comment deletion asynchronously.
+     * Track comment deletion.
      *
-     * @param string   $comment_id The ID of the deleted comment.
-     * @param WP_Comment $comment   The WP_Comment object of the deleted comment.
+     * @param string     $comment_id Comment ID.
+     * @param WP_Comment $comment    Comment object.
+     *
+     * @return void
      */
-    public static function async_delete_comment(string $comment_id, WP_Comment $comment)
+    public static function async_delete_comment(string $comment_id, WP_Comment $comment): void
     {
         if (!Plugin_Settings::get_comment_tracking_state()) {
             return;
         }
-        // Serialize the comment object for processing.
-        $serialize_comment = serialize($comment);
 
-        // Enqueue an asynchronous action to handle the comment deletion.
-        self::schedule_action('middle_delete_comment', [$comment_id, $serialize_comment]);
+        self::scheduleAction('middle_delete_comment', [$comment_id, self::postFilteredData($comment)]);
     }
 
     /**
-     * Handle comment status transition asynchronously.
+     * Track comment status transition.
      *
-     * @param int|string $new_status The new status of the comment.
-     * @param int|string $old_status The old status of the comment.
-     * @param WP_Comment $comment    The WP_Comment object of the comment.
+     * @param int|string $new_status New status.
+     * @param int|string $old_status Old status.
+     * @param WP_Comment $comment    Comment object.
+     *
+     * @return void
      */
-    public static function async_transition_comment_status(int|string $new_status, int|string $old_status, WP_Comment $comment)
+    public static function async_transition_comment_status(int|string $new_status, int|string $old_status, WP_Comment $comment): void
     {
         if (!Plugin_Settings::get_comment_tracking_state()) {
             return;
         }
-        // Serialize the comment object for processing.
-        $serialize_comment = serialize($comment);
 
-        // Enqueue an asynchronous action to handle the comment status transition.
-        self::schedule_action('middle_transition_comment_status', [$new_status, $old_status, $serialize_comment]);
+        self::scheduleAction('middle_transition_comment_status', [$new_status, $old_status, self::postFilteredData($comment)]);
     }
 
     /**
-     * Handle trashed post comments asynchronously.
+     * Track trashed post comments.
      *
-     * @param int   $post_id The ID of the post.
-     * @param array $statuses The statuses of the trashed comments.
+     * @param int   $post_id  Post ID.
+     * @param array $statuses Status summary.
+     *
+     * @return void
      */
-    public static function async_trashed_post_comments(int $post_id, array $statuses)
+    public static function async_trashed_post_comments(int $post_id, array $statuses): void
     {
         if (!Plugin_Settings::get_comment_tracking_state()) {
             return;
         }
-        // Enqueue an asynchronous action to handle trashed post comments.
-        self::schedule_action('middle_trashed_post_comments', [$post_id, $statuses]);
+
+        self::scheduleAction('middle_trashed_post_comments', [$post_id, $statuses]);
     }
 
     /**
-     * Handle untrashing post comments asynchronously.
+     * Track untrash post comments.
      *
-     * @param int $post_id The ID of the post.
+     * @param int $post_id Post ID.
+     *
+     * @return void
      */
-    public static function async_untrash_post_comments(int $post_id)
+    public static function async_untrash_post_comments(int $post_id): void
     {
         if (!Plugin_Settings::get_comment_tracking_state()) {
             return;
         }
-        // Enqueue an asynchronous action to handle untrashing post comments.
-        self::schedule_action('middle_untrash_post_comments', [$post_id]);
+
+        self::scheduleAction('middle_untrash_post_comments', [$post_id]);
     }
+
+    /* =======================================================================
+     * Internal helpers
+     * ======================================================================= */
+
+    /**
+     * Reduce large WP objects to a compact serialized payload.
+     *
+     * @param WP_Post|WP_Comment|null $post Post, comment, or null.
+     *
+     * @return string Serialized snapshot.
+     */
+    private static function postFilteredData(WP_Post|WP_Comment|null $post)
+    {   
+        if ($post === null) { 
+            return null;
+        }
+
+        $clone = clone $post;
+
+        // Keep only the fields you care about
+        $allowed = [
+            'ID',
+            'post_title',
+            'post_status',
+            'post_type',
+            'post_author',
+            'post_date',
+            'post_modified',
+            'guid',
+        ];
+
+        foreach (get_object_vars($clone) as $prop => $_) {
+            if (!in_array($prop, $allowed, true)) {
+                unset($clone->{$prop});
+            }
+        }
+
+        $clone = serialize($clone);
+
+        return $clone;
+    }
+
 }

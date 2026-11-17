@@ -5,7 +5,7 @@ Tags: activity log, audit log, security, user tracking, event log
 Requires at least: 6.2
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.3.0
+Stable tag: 1.3.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Website: https://logifywp.com/
@@ -109,6 +109,14 @@ You can report security bugs through the Patchstack Vulnerability Disclosure Pro
 
 = 1.3.0 =
 * Added asynchrnous log processing using action scheduler
+
+= 1.3.1 =
+* Added asynchrnous log processing fixes which were causing DB bloating
+* Fixed IP logging issue
+* Bulk updates issue through dashboard
+* object size limit issue
+* Gravity form tracking
+* Bricks builder tracking
 
 == Links ==
 

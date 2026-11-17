@@ -16,91 +16,71 @@ use ReflectionClass;
  */
 class Main {
 
-	const DB_VERSION = '1.2.0'; // Update this when changing the database structure.
+	const DB_VERSION = '1.3.0'; // Update this when changing the database structure.
 
 	/**
 	 * Initialize the plugin.
 	 */
 	public static function init() {
-		// Get WordPress content directory
-		$content_dir = dirname(dirname(dirname(dirname(__FILE__)))) . '/wp-content';
-		if ( defined('WP_CONTENT_DIR') ) {
-			$content_dir = WP_CONTENT_DIR;
-		}
-		$debug_log_path = $content_dir . '/debug.log';
-		
-		// Ensure directory exists and is writable (via WP_Filesystem).
-		if ( ! function_exists( 'WP_Filesystem' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/file.php';
-		}
-		WP_Filesystem();
+		$error_tracking_enabled = Plugin_Settings::is_php_error_tracking_enabled();
 
-		global $wp_filesystem;
+		if ( $error_tracking_enabled ) {
+			// Get WordPress content directory
+			$content_dir = dirname(dirname(dirname(dirname(__FILE__)))) . '/wp-content';
+			if ( defined('WP_CONTENT_DIR') ) {
+				$content_dir = WP_CONTENT_DIR;
+			}
+			$debug_log_path = $content_dir . '/debug.log';
 
-		// Verify wp-content exists.
-		if ( ! $wp_filesystem || ! $wp_filesystem->is_dir( $content_dir ) ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			error_log( 'Logify WP: wp-content directory is not accessible: ' . $content_dir );
-			return;
-		}
+			// Ensure directory exists and is writable (via WP_Filesystem).
+			if ( ! function_exists( 'WP_Filesystem' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+			}
+			WP_Filesystem();
 
-		// Ensure log file exists and is writable (no direct touch/chmod).
-		if ( ! $wp_filesystem->exists( $debug_log_path ) ) {
-			// Create an empty file; this covers “touch” semantics across transports.
-			$created = $wp_filesystem->put_contents( $debug_log_path, '', defined( 'FS_CHMOD_FILE' ) ? FS_CHMOD_FILE : false );
+			global $wp_filesystem;
 
-			if ( $created ) {
-				// Normalize permissions using WP constants (portable across FS transports).
-				if ( method_exists( $wp_filesystem, 'chmod' ) ) {
-					$wp_filesystem->chmod( $debug_log_path, defined( 'FS_CHMOD_FILE' ) ? FS_CHMOD_FILE : false );
+			// Verify wp-content exists.
+			if ( $wp_filesystem && $wp_filesystem->is_dir( $content_dir ) ) {
+				// Ensure log file exists and is writable (no direct touch/chmod).
+				if ( ! $wp_filesystem->exists( $debug_log_path ) ) {
+					// Create an empty file; this covers “touch” semantics across transports.
+					$created = $wp_filesystem->put_contents( $debug_log_path, '', defined( 'FS_CHMOD_FILE' ) ? FS_CHMOD_FILE : false );
+
+					if ( $created ) {
+						// Normalize permissions using WP constants (portable across FS transports).
+						if ( method_exists( $wp_filesystem, 'chmod' ) ) {
+							$wp_filesystem->chmod( $debug_log_path, defined( 'FS_CHMOD_FILE' ) ? FS_CHMOD_FILE : false );
+						}
+					} else {
+						$debug_log_path = null;
+					}
 				}
+
+				if ( $debug_log_path ) {
+					// Set custom error log path
+					ini_set('error_log', $debug_log_path);
+
+					// Ensure debug is always enabled while plugin is active and error tracking is on.
+					if (!defined('WP_DEBUG')) {
+						define('WP_DEBUG', true);
+					}
+
+					if (!defined('WP_DEBUG_LOG')) {
+						define('WP_DEBUG_LOG', true);
+					}
+
+					if (!defined('WP_DEBUG_DISPLAY')) {
+						define('WP_DEBUG_DISPLAY', false);
+					}
+
+					ini_set('display_errors', 0);
+				}
+			} elseif ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-				error_log( 'Logify WP: Created debug.log at: ' . $debug_log_path );
-			} else {
-				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-				error_log( 'Logify WP: Failed to create debug.log at: ' . $debug_log_path );
+				error_log( 'Logify WP: wp-content directory is not accessible: ' . $content_dir );
 			}
 		}
-		
-		// Set custom error log path
-		ini_set('error_log', $debug_log_path);
-		
-		$logifyts = current_time( 'timestamp', false );
-		$logifyLocalTime = wp_date( 'Y-m-d H:i:s', $logifyts );
-		
-		// Log plugin initialization
-		error_log('Logify WP: Plugin initialization started at ' . $logifyLocalTime);
-		error_log('Logify WP: Using debug log at: ' . $debug_log_path);
-		
-		// Ensure debug is always enabled while plugin is active
-		if (!defined('WP_DEBUG')) {
-			error_log('Logify WP: WP_DEBUG was not defined, setting to true');
-			define('WP_DEBUG', true);
-		} else {
-			error_log('Logify WP: WP_DEBUG was already defined as: ' . (WP_DEBUG ? 'true' : 'false'));
-		}
-
-		if (!defined('WP_DEBUG_LOG')) {
-			error_log('Logify WP: WP_DEBUG_LOG was not defined, setting to true');
-			define('WP_DEBUG_LOG', true);
-		} else {
-			error_log('Logify WP: WP_DEBUG_LOG was already defined as: ' . (WP_DEBUG_LOG ? 'true' : 'false'));
-		}
-
-		if (!defined('WP_DEBUG_DISPLAY')) {
-			error_log('Logify WP: WP_DEBUG_DISPLAY was not defined, setting to false');
-			define('WP_DEBUG_DISPLAY', false);
-		} else {
-			error_log('Logify WP: WP_DEBUG_DISPLAY was already defined as: ' . (WP_DEBUG_DISPLAY ? 'true' : 'false'));
-		}
-
-		$display_errors = ini_set('display_errors', 0);
-		error_log('Logify WP: display_errors was set to: ' . ($display_errors === false ? 'failed' : '0'));
-
-		
-		
-		// Test debug logging
-		error_log('Logify WP: Debug test message - ' . $logifyLocalTime);
 		
 		add_action('upgrader_process_complete', [__CLASS__, 'maybe_upgrade_db'], 10, 2);
     
@@ -138,12 +118,6 @@ class Main {
 	 * Run on activation.
 	 */
 	public static function activate() {
-		// Force debug configuration
-		define('WP_DEBUG', true);
-		define('WP_DEBUG_LOG', true);
-		define('WP_DEBUG_DISPLAY', false);
-		@ini_set('display_errors', 0);
-
 		// Create the database tables used by the plugin.
 		Database::create_all_tables();
 		update_option('logify_wp_db_version', self::DB_VERSION);
@@ -155,9 +129,11 @@ class Main {
     public static function maybe_upgrade_db($upgrader_object = null, $options = null) {
         $installed_version = get_option('logify_wp_db_version', '1.0');
 
-        if (version_compare($installed_version, self::DB_VERSION, '<')) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-            error_log("Updating database from version $installed_version to " . self::DB_VERSION); // Debugging log
+		if (version_compare($installed_version, self::DB_VERSION, '<')) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				error_log("Updating database from version $installed_version to " . self::DB_VERSION); // Debugging log
+			}
             Database::create_all_tables();
             update_option('logify_wp_db_version', self::DB_VERSION);
         }

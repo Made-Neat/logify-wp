@@ -27,7 +27,7 @@ class Comment_Tracker {
 	/**
 	 * Set up hooks for the events we want to log.
 	 */
-	public static function init() {
+	public static function init() { 
 
 		// Add comment.
 		add_action( 'wp_insert_comment', [__NAMESPACE__.'\Async_Tracker','async_wp_insert_comment'], 10, 2 );
@@ -63,8 +63,18 @@ class Comment_Tracker {
 	 */
 	public static function on_wp_insert_comment( int $id, $serialize_comment ) {
 
-		//unserialize comment object
-		$comment = unserialize($serialize_comment);
+		// Deserialize comment object safely
+		if ( is_string( $serialize_comment ) ) {
+			$comment = null;
+			Serialization::try_unserialize( $serialize_comment, $comment );
+		} elseif ( is_array( $serialize_comment ) ) {
+			$comment = (object) $serialize_comment;
+		} else {
+			$comment = $serialize_comment;
+		}
+		if ( ! is_object( $comment ) ) {
+			Debug::warning( 'logify-debug: on_wp_insert_comment expected object, got ' . gettype( $comment ) );
+		}
 		Debug::info( 'on_wp_insert_comment', $id );
 		
 		Logger::log_event( 'Comment Added', $comment );
@@ -141,8 +151,18 @@ class Comment_Tracker {
 	 */
 	public static function on_delete_comment( $comment_id, $serialize_comment ) {
 
-		//unserialize comment object
-		$comment = unserialize($serialize_comment);
+		// Deserialize comment object safely
+		if ( is_string( $serialize_comment ) ) {
+			$comment = null;
+			Serialization::try_unserialize( $serialize_comment, $comment );
+		} elseif ( is_array( $serialize_comment ) ) {
+			$comment = (object) $serialize_comment;
+		} else {
+			$comment = $serialize_comment;
+		}
+		if ( ! is_object( $comment ) ) {
+			Debug::warning( 'logify-debug: on_delete_comment expected object, got ' . gettype( $comment ) );
+		}
 		Debug::info( 'on_delete_comment', $comment_id );
 		
 		// Get all the comment properties in case we need to restore it.

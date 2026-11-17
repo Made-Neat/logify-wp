@@ -258,23 +258,60 @@ class User_Utility extends Object_Utility {
 	 * @return ?string The IP address of the user or null if not found.
 	 */
 	public static function get_ip(): ?string {
+		// Prefer common real-IP headers used by CDNs and proxies.
+		$candidates = array();
+
+		if ( ! empty( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ) {
+			$candidates[] = sanitize_text_field( wp_unslash( $_SERVER['HTTP_CF_CONNECTING_IP'] ) );
+		}
+		if ( ! empty( $_SERVER['HTTP_X_REAL_IP'] ) ) {
+			$candidates[] = sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_REAL_IP'] ) );
+		}
 		if ( ! empty( $_SERVER['HTTP_CLIENT_IP'] ) ) {
-			// Check for shared internet/ISP IP.
-			$ip = sanitize_text_field( wp_unslash( $_SERVER['HTTP_CLIENT_IP'] ) );
-		} elseif ( ! empty( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
-			// Check for IPs passing through proxies.
-			// The value might be a comma-separated list of addresses.
+			$candidates[] = sanitize_text_field( wp_unslash( $_SERVER['HTTP_CLIENT_IP'] ) );
+		}
+		if ( ! empty( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
+			// May be a comma-separated list; take each in order.
 			$http_x_forwarded_for = sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_FOR'] ) );
-			$ip                   = explode( ',', $http_x_forwarded_for )[0];
-		} elseif ( ! empty( $_SERVER['REMOTE_ADDR'] ) ) {
-			// The remote address (the actual IP).
-			$ip = sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) );
-		} else {
-			$ip = null;
+			foreach ( explode( ',', $http_x_forwarded_for ) as $ip_part ) {
+				$candidates[] = trim( $ip_part );
+			}
+		}
+		if ( ! empty( $_SERVER['REMOTE_ADDR'] ) ) {
+			$candidates[] = sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) );
 		}
 
-		// Trim any whitespace.
-		return $ip === null ? null : trim( $ip );
+		foreach ( $candidates as $candidate ) {
+			$candidate = trim( (string) $candidate );
+			if ( ! $candidate ) {
+				continue;
+			}
+			// Validate IP and prefer the first public IP we find.
+			if ( filter_var( $candidate, FILTER_VALIDATE_IP ) && self::is_public_ip( $candidate ) ) {
+				return $candidate;
+			}
+		}
+
+		// If we didn't find a public IP, fall back to the first valid IP found (including private).
+		foreach ( $candidates as $candidate ) {
+			$candidate = trim( (string) $candidate );
+			if ( filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
+				return $candidate;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Check if an IP is public (not in private/reserved ranges).
+	 *
+	 * @param string $ip
+	 * @return bool
+	 */
+	private static function is_public_ip( string $ip ): bool {
+		$flags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE;
+		return (bool) filter_var( $ip, FILTER_VALIDATE_IP, $flags );
 	}
 
 	/**

@@ -31,15 +31,15 @@ class Term_Tracker
 	{
 		// Term creation.
 		add_action('created_term', [__NAMESPACE__ . '\Async_Tracker', 'async_created_term'], 10, 4);
-		add_action('middle_created_term', array(__CLASS__, 'on_created_term'), 10, 4);
+		add_action('middle_created_term', array(__CLASS__, 'on_created_term'), 10, 6);
 
 		// Term update.
 		add_action('edit_terms', [__NAMESPACE__ . '\Async_Tracker', 'async_edit_terms'], 10, 3);
-		add_action('middle_edit_terms', array(__CLASS__, 'on_edit_terms'), 10, 3);
+		add_action('middle_edit_terms', array(__CLASS__, 'on_edit_terms'), 10, 5);
 
 		// Term deletion.
 		add_action('pre_delete_term', [__NAMESPACE__ . '\Async_Tracker', 'async_pre_delete_term'], 10, 2);
-		add_action('middle_pre_delete_term', array(__CLASS__, 'on_pre_delete_term'), 10, 2);
+		add_action('middle_pre_delete_term', array(__CLASS__, 'on_pre_delete_term'), 10, 4);
 	}
 
 	// =============================================================================================
@@ -53,7 +53,7 @@ class Term_Tracker
 	 * @param string $taxonomy Taxonomy slug.
 	 * @param array  $args     Arguments passed to wp_insert_term().
 	 */
-	public static function on_created_term(int $term_id, int $tt_id, string $taxonomy, array $args)
+	public static function on_created_term(int $term_id, int $tt_id, string $taxonomy, array $args, ?int $acting_user_id = null, ?string $client_ip = null)
 	{
 		// Load the term.
 		$term = Term_Utility::load($term_id);
@@ -66,7 +66,7 @@ class Term_Tracker
 		$event_type = "$taxonomy_name Created";
 
 		// Log the event.
-		Logger::log_event($event_type, $term);
+		Logger::log_event($event_type, $term, null, null, $acting_user_id, false, $client_ip);
 	}
 
 	/**
@@ -76,7 +76,7 @@ class Term_Tracker
 	 * @param string $taxonomy Taxonomy slug.
 	 * @param array  $args     Arguments passed to wp_update_term().
 	 */
-	public static function on_edit_terms(int $term_id, string $taxonomy, array $args)
+	public static function on_edit_terms(int $term_id, string $taxonomy, array $args, ?int $acting_user_id = null, ?string $client_ip = null)
 	{
 		global $wpdb;
 
@@ -123,7 +123,7 @@ class Term_Tracker
 			$event_type = "$taxonomy_name Updated";
 
 			// Log the event.
-			Logger::log_event($event_type, $term, null, self::$properties);
+			Logger::log_event($event_type, $term, null, self::$properties, $acting_user_id, false, $client_ip);
 		}
 	}
 
@@ -134,7 +134,7 @@ class Term_Tracker
 	 * @param string $taxonomy Taxonomy name.
 	 * @throws RuntimeException If the term could not be retrieved.
 	 */
-	public static function on_pre_delete_term(int $term_id, string $taxonomy)
+	public static function on_pre_delete_term(int $term_id, string $taxonomy, ?int $acting_user_id = null, ?string $client_ip = null)
 	{
 		global $wpdb;
 
@@ -165,6 +165,6 @@ class Term_Tracker
 		}
 
 		// Log the event.
-		Logger::log_event($event_type, $term, $metas);
+		Logger::log_event($event_type, $term, $metas, null, $acting_user_id, false, $client_ip);
 	}
 }

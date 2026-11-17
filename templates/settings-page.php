@@ -16,7 +16,7 @@ if ($settings_updated) {
 	$errors_capture_period = get_option('logify_wp_keep_period_errors', []);
 	$get_error = new Error_Tracker();
 	update_option('logify_wp_capture_start_time', time());
-	as_enqueue_async_action('schedule_process');
+	\Logify_WP\AS_Guard::enqueue_async('schedule_process', []);
 	add_settings_error(
 		'logify_wp_messages',
 		'logify_wp_settings_saved',

@@ -96,11 +96,12 @@ class Logger {
 		?array $eventmetas = null,
 		?array $properties = null,
 		null|int|WP_User $acting_user = null,
-		bool $all_users = false
+		bool $all_users = false,
+		?string $client_ip = null
 	): bool {
 
 		// Create the new event.
-		$event = Event::create( $event_type, $wp_object, $eventmetas, $properties, $acting_user, $all_users );
+		$event = Event::create( $event_type, $wp_object, $eventmetas, $properties, $acting_user, $all_users, $client_ip );
 		
 		// If an event was not created, return.
 		if ( ! $event ) {
