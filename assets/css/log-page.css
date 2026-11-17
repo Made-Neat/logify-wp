@@ -358,9 +358,11 @@
 #logify-wp-event-type-filter {
   width: 20rem;
 }
+
 #logify-wp-reset-filters-wrapper {
   margin: 1rem 0;
 }
+
 button.ui-button.ui-corner-all.ui-widget.ui-button-icon-only.ui-dialog-titlebar-close {
   float: right;
 }

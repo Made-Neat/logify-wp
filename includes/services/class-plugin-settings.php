@@ -65,6 +65,21 @@ class Plugin_Settings {
 	 * @var string
 	 */
 	private const DEFAULT_KEEP_PERIOD_UNITS = 'month';
+	/**
+	 * The default value for the 'keep period error' setting.
+	 *
+	 * @var string
+	 */
+	private const DEFAULT_KEEP_PERIOD_ERRORS = '10mins';
+	/**
+	 * The default value for the 'error type' setting.
+	 *
+	 * @var string
+	 */
+	private const DEFAULT_PHP_ERROR_TYPES = array('Fatal Error');
+	private const DEFAULT_COMMENT_TRACKING_STATE = false;
+
+	private const DEFAULT_CAPTURE_START_TIME = 1;
 
 	/**
 	 * Get the names of all current roles.
@@ -91,6 +106,7 @@ class Plugin_Settings {
 	 * Registers the settings for the Logify WP plugin.
 	 */
 	public static function register_settings() {
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
 		register_setting(
 			'logify_wp_settings_group',
 			'logify_wp_enable_notes',
@@ -100,6 +116,8 @@ class Plugin_Settings {
 				'default'           => self::DEFAULT_ENABLE_NOTES,
 			)
 		);
+
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
 		register_setting(
 			'logify_wp_settings_group',
 			'logify_wp_delete_on_uninstall',
@@ -109,6 +127,8 @@ class Plugin_Settings {
 				'default'           => self::DEFAULT_DELETE_ON_UNINSTALL,
 			)
 		);
+
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
 		register_setting(
 			'logify_wp_settings_group',
 			'logify_wp_roles_to_track',
@@ -118,6 +138,8 @@ class Plugin_Settings {
 				'default'           => self::get_roles(),
 			)
 		);
+
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
 		register_setting(
 			'logify_wp_settings_group',
 			'logify_wp_roles_with_access',
@@ -127,6 +149,8 @@ class Plugin_Settings {
 				'default'           => self::DEFAULT_ROLES_WITH_ACCESS,
 			)
 		);
+
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
 		register_setting(
 			'logify_wp_settings_group',
 			'logify_wp_users_with_access',
@@ -136,6 +160,8 @@ class Plugin_Settings {
 				'default'           => self::DEFAULT_USERS_WITH_ACCESS,
 			)
 		);
+
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
 		register_setting(
 			'logify_wp_settings_group',
 			'logify_wp_show_in_admin_bar',
@@ -145,6 +171,8 @@ class Plugin_Settings {
 				'default'           => self::DEFAULT_SHOW_IN_ADMIN_BAR,
 			)
 		);
+
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
 		register_setting(
 			'logify_wp_settings_group',
 			'logify_wp_keep_period_quantity',
@@ -154,6 +182,8 @@ class Plugin_Settings {
 				'default'           => self::DEFAULT_KEEP_PERIOD_QUANTITY,
 			)
 		);
+
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
 		register_setting(
 			'logify_wp_settings_group',
 			'logify_wp_keep_period_units',
@@ -163,6 +193,50 @@ class Plugin_Settings {
 				'default'           => self::DEFAULT_KEEP_PERIOD_UNITS,
 			)
 		);
+
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
+		register_setting(
+			'logify_wp_settings_group',
+			'logify_wp_keep_period_errors',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+				'default'           => self::DEFAULT_KEEP_PERIOD_ERRORS,
+			)
+		);
+
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
+		register_setting(
+			'logify_wp_settings_group',
+			'logify_wp_php_error_types',
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_errors' ),
+				'default'           => self::DEFAULT_PHP_ERROR_TYPES,
+			)
+		);
+
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
+		register_setting(
+			'logify_wp_settings_group',
+			'logify_wp_comment_tracking',
+			array(
+				'type'              => 'boolean',
+				'sanitize_callback' => 'rest_sanitize_boolean',
+				'default'           => self::DEFAULT_COMMENT_TRACKING_STATE,
+			)
+		);
+
+		// phpcs:ignore PluginCheck.CodeAnalysis.SettingSanitization.register_settingDynamic
+		register_setting(
+			'logify_wp_settings_group',
+			'logify_wp_capture_start_time',
+			array(
+				'type'	=> 'integer',
+				'sanitize_callback'=>'absint',
+				'default' => self::DEFAULT_CAPTURE_START_TIME,
+			)
+			);
 	}
 
 	/**
@@ -171,6 +245,7 @@ class Plugin_Settings {
 	public static function delete_all() {
 		// Delete all options that start with logify_wp.
 		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$options = $wpdb->get_results(
 			$wpdb->prepare(
 				'SELECT option_name FROM %i WHERE option_name LIKE %s',
@@ -213,6 +288,19 @@ class Plugin_Settings {
 
 		$valid_roles = self::get_roles();
 		return array_intersect( $roles, $valid_roles );
+	}
+	/**
+	 * Sanitizes the given array of roles by filtering out any invalid roles.
+	 *
+	 * @param ?array $roles The array of roles to be sanitized.
+	 * @return array The sanitized array of roles.
+	 */
+	public static function sanitize_errors( ?array $errors ): array {
+		// Handle null or empty array.
+		if ( empty( $errors ) ) {
+			return array();
+		}
+		return  $errors;
 	}
 
 	/**
@@ -311,5 +399,23 @@ class Plugin_Settings {
 	 */
 	public static function get_keep_period_units(): string {
 		return get_option( 'logify_wp_keep_period_units', self::DEFAULT_KEEP_PERIOD_UNITS );
+	}
+	/**
+	 * Retrieves the keep period units setting for the Logify WP plugin.
+	 *
+	 * @return string The keep period units setting.
+	 */
+	public static function get_keep_period_errors(): string {
+		return get_option( 'logify_wp_keep_period_errors', self::DEFAULT_KEEP_PERIOD_ERRORS );
+	}
+
+	public static function get_php_error_types(): array {
+		return get_option( 'logify_wp_php_error_types', self::DEFAULT_PHP_ERROR_TYPES );
+	}
+	public static function get_comment_tracking_state(): bool {
+		return get_option( 'logify_wp_comment_tracking', self::DEFAULT_COMMENT_TRACKING_STATE );
+	}
+	public static function get_capture_start_time(): int {
+		return get_option('logify_wp_capture_start_time', self::DEFAULT_CAPTURE_START_TIME );
 	}
 }

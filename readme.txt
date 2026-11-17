@@ -1,16 +1,16 @@
-=== Logify WP – Activity Log & User Audit Log ===
+=== Logify WP - Activity Log & User Audit Log ===
 
 Contributors: madeneat
 Tags: activity log, audit log, security, user tracking, event log
 Requires at least: 6.2
-Tested up to: 6.7
+Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.2.6
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Website: https://logifywp.com/
 
-Logify WP – Activity Log & User Audit Log tracks critical changes, logins, and updates with searchable logs for site security.
+Logify WP - Activity Log & User Audit Log tracks critical changes, logins, and updates with searchable logs for site security.
 
 == Description ==
 
@@ -106,6 +106,9 @@ You can report security bugs through the Patchstack Vulnerability Disclosure Pro
 
 = 1.2.6 =
 * Added VDP disclaimer and fixed Notes modal close button issue
+
+= 1.3.0 =
+* Added asynchrnous log processing using action scheduler
 
 == Links ==
 
