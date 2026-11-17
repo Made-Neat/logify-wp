@@ -24,7 +24,7 @@ class User_Tracker
 	 *
 	 * @var int
 	 */
-	private const MAX_BREAK_PERIOD = 2; // 20 minutes
+	private const MAX_BREAK_PERIOD = 1200; // 20 minutes
 
 	/**
 	 * Array to remember metadata between different events.
@@ -140,10 +140,17 @@ class User_Tracker
 		if (!$event) {
 			return;
 		}
-		// Store deatils of the login failure in the event metadata.
+		// Store details of the login failure in the event metadata.
 		$event->set_meta('username_entered', $username);
-		$event->set_meta('error_code', $error->get_error_code());
-		$event->set_meta('error_message', Strings::strip_tags($error->get_error_message()));
+
+		// Guard against null $error (e.g., unserialization failed or unexpected payload type).
+		if ($error instanceof \WP_Error) {
+			$event->set_meta('error_code', $error->get_error_code());
+			$event->set_meta('error_message', Strings::strip_tags($error->get_error_message()));
+		} else {
+			$event->set_meta('error_code', 'unknown');
+			$event->set_meta('error_message', 'Login failed (error details unavailable)');
+		}
 
 		// Log the event.
 		$event->save();

@@ -15,6 +15,9 @@ namespace Logify_WP;
  * The reason this is called Option_Tracker is because originally we were tracking changes to all
  * options, not just settings. Settings are options that can be changed by a user via a form, which
  * are the only options we want to track changes to.
+ *
+ * Following Simple History's approach: we only hook into updated_option when we're on an actual
+ * settings page. This prevents tracking of background option updates (cron, API, plugin internals).
  */
 class Option_Tracker {
 
@@ -24,16 +27,75 @@ class Option_Tracker {
 	private const BATCH_OPTION_PREFIX = 'logify_wp_option_batch_';
 
 	/**
+	 * Whether the option tracking hooks have been registered for this request.
+	 *
+	 * @var bool
+	 */
+	private static bool $hooks_registered = false;
+
+	/**
 	 * Set up hooks for the events we want to log.
 	 */
 	public static function init() {
-		// Track settings updates.
-		add_action( 'update_option', [__NAMESPACE__.'\Async_Tracker','async_update_option_option'], 10, 3 );
+		// Only hook into option updates when we're on a settings page.
+		// This follows Simple History's approach to avoid tracking background/cron option updates.
+		add_action( 'load-options.php', array( __CLASS__, 'on_load_settings_page' ) );
+		add_action( 'load-options-permalink.php', array( __CLASS__, 'on_load_settings_page' ) );
+		add_action( 'load-options-general.php', array( __CLASS__, 'on_load_settings_page' ) );
+		add_action( 'load-options-writing.php', array( __CLASS__, 'on_load_settings_page' ) );
+		add_action( 'load-options-reading.php', array( __CLASS__, 'on_load_settings_page' ) );
+		add_action( 'load-options-discussion.php', array( __CLASS__, 'on_load_settings_page' ) );
+		add_action( 'load-options-media.php', array( __CLASS__, 'on_load_settings_page' ) );
+		add_action( 'load-options-privacy.php', array( __CLASS__, 'on_load_settings_page' ) );
+
+		// Also track when plugins register their own settings pages.
+		// These typically post to options.php with an option_page parameter.
+		add_action( 'admin_init', array( __CLASS__, 'maybe_register_on_plugin_settings' ), 99 );
+
 		// Accept batch identifier plus client IP from the async callback.
 		add_action( 'middle_update_option_option', array( __CLASS__, 'on_update_option' ), 10, 6 );
-		
-		add_action( 'shutdown', [__NAMESPACE__.'\Async_Tracker','async_shutdown_option'], 10, 0 );
+
+		add_action( 'shutdown', [ __NAMESPACE__ . '\Async_Tracker', 'async_shutdown_option' ], 10, 0 );
 		add_action( 'middle_shutdown_option', array( __CLASS__, 'on_shutdown' ), 10, 1 );
+	}
+
+	/**
+	 * Called when a WordPress settings page is loaded.
+	 * Registers the option update tracking hooks.
+	 */
+	public static function on_load_settings_page(): void {
+		self::register_option_hooks();
+	}
+
+	/**
+	 * Check if we're on a plugin settings page that posts to options.php.
+	 * This catches custom plugin settings pages.
+	 */
+	public static function maybe_register_on_plugin_settings(): void {
+		// Already registered via load-options.php hook.
+		if ( self::$hooks_registered ) {
+			return;
+		}
+
+		// Check if this is a POST to options.php (settings form submission).
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing
+		if ( isset( $_POST['option_page'] ) && ! empty( $_POST['option_page'] ) ) {
+			self::register_option_hooks();
+		}
+	}
+
+	/**
+	 * Register the actual option tracking hooks.
+	 */
+	private static function register_option_hooks(): void {
+		if ( self::$hooks_registered ) {
+			return;
+		}
+
+		self::$hooks_registered = true;
+
+		// Track settings updates - only when we know we're on a settings page.
+		add_action( 'update_option', [ __NAMESPACE__ . '\Async_Tracker', 'async_update_option_option' ], 10, 3 );
 	}
 
 	/**

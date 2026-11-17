@@ -25,6 +25,10 @@ class Option_Utility extends Object_Utility {
 		'wp_user_roles',
 		'__uagb_asset_version',
 		'bsf_last_update_check',
+		// Gravity Forms transient-like options (huge JSON blobs with version/license info).
+		'gform_version_info',
+		'gform_update_info',
+		'gform_pending_installation',
 	);
 
 	/**
@@ -35,6 +39,10 @@ class Option_Utility extends Object_Utility {
 	private const NOISY_PREFIXES = array(
 		'_transient_',
 		'_site_transient_',
+		// Gravity Forms session/cache prefixes.
+		'gf_digest_',
+		'gform_sticky_',
+		'gf_api_',
 	);
 
 	/**

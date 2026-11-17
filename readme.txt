@@ -5,7 +5,7 @@ Tags: activity log, audit log, security, user tracking, event log
 Requires at least: 6.2
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.3.2
+Stable tag: 1.3.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Website: https://logifywp.com/
@@ -120,6 +120,9 @@ You can report security bugs through the Patchstack Vulnerability Disclosure Pro
 
 = 1.3.2 =
 * minor fixes
+
+= 1.3.3 =
+* bug fixes and added support for beaver builder
 
 == Links ==
 

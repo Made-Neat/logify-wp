@@ -16,6 +16,12 @@ use WP_Upgrader;
  */
 class Plugin_Tracker
 {
+	/**
+	 * Whether the auto-update option tracking hook has been registered.
+	 *
+	 * @var bool
+	 */
+	private static bool $auto_update_hook_registered = false;
 
 	/**
 	 * Set up hooks for the events we want to log.
@@ -41,9 +47,24 @@ class Plugin_Tracker
 		add_action('pre_uninstall_plugin', [__NAMESPACE__ . '\Async_Tracker', 'async_pre_uninstall_plugin'], 10, 2);
 		add_action('middle_pre_uninstall_plugin', array(__CLASS__, 'on_pre_uninstall_plugin'), 10, 4);
 
-		// Enabling and disabling auto-updates.
-		add_action('update_option', [__NAMESPACE__ . '\Async_Tracker', 'async_update_option_plugin'], 10, 3);
+		// Enabling and disabling auto-updates - only on plugins page.
+		add_action('load-plugins.php', array(__CLASS__, 'register_auto_update_hook'));
+		add_action('wp_ajax_toggle-auto-updates', array(__CLASS__, 'register_auto_update_hook'), 1);
+
 		add_action('middle_update_option_plugin', array(__CLASS__, 'on_update_option'), 10, 5);
+	}
+
+	/**
+	 * Register the auto-update option tracking hook when on plugins page.
+	 */
+	public static function register_auto_update_hook(): void
+	{
+		if (self::$auto_update_hook_registered) {
+			return;
+		}
+
+		self::$auto_update_hook_registered = true;
+		add_action('update_option', [__NAMESPACE__ . '\Async_Tracker', 'async_update_option_plugin'], 10, 3);
 	}
 
 	/**

@@ -111,16 +111,16 @@ final class GravityForms_Tracker {
 
         // Minimal properties to avoid large payloads. Do NOT serialize entire form.
         $properties = array(
-            new Property('id', (string)$form_id),
-            new Property('title', $form_title),
+            new Property( 'id', null, (string) $form_id ),
+            new Property( 'title', null, $form_title ),
         );
 
         if ( isset( $form['is_active'] ) ) {
-            $properties[] = new Property('is_active', $form['is_active'] ? '1' : '0');
+            $properties[] = new Property( 'is_active', null, $form['is_active'] ? '1' : '0' );
         }
 
         if ( isset( $form['version'] ) ) {
-            $properties[] = new Property('version', (string) $form['version']);
+            $properties[] = new Property( 'version', null, (string) $form['version'] );
         }
 
         $event = self::create_event( $event_type, $object_ref, null, $properties );
@@ -159,6 +159,24 @@ final class GravityForms_Tracker {
             return;
         }
 
+        // Skip noisy/large transient-like options that provide no audit value.
+        // These contain version info, license data, or cached API responses.
+        $skip_patterns = array(
+            'gform_version_info',      // Huge JSON blob with all addon versions (~50KB+)
+            'gform_update_info',       // Update check cache
+            'gform_pending_installation', // Installation state
+            '_transient',              // Any transients
+            '_site_transient',         // Site transients
+            'gf_digest_',              // Digest notifications
+            'gform_sticky_',           // Sticky form values (per-user/session)
+            'gf_api_',                 // API response caches
+        );
+        foreach ( $skip_patterns as $skip ) {
+            if ( stripos( $option, $skip ) !== false ) {
+                return;
+            }
+        }
+
         $needle_patterns = array( 'gform', 'gravityform', 'gravityforms', 'rg_gforms', 'gf_' );
         $found = false;
         foreach ( $needle_patterns as $pat ) {
@@ -173,21 +191,22 @@ final class GravityForms_Tracker {
 
         // Build a tiny properties summary; avoid serializing large structures.
         $properties = array(
-            new Property('option', $option),
-            new Property('value_type', gettype($value)),
+            new Property( 'option', null, $option ),
+            new Property( 'value_type', null, gettype( $value ) ),
         );
 
         if ( is_scalar( $value ) ) {
-            $properties[] = new Property('value_summary', mb_substr((string) $value, 0, 200));
-            $properties[] = new Property('value_length', (string)mb_strlen((string) $value));
+            $properties[] = new Property( 'value_summary', null, mb_substr( (string) $value, 0, 200 ) );
+            $properties[] = new Property( 'value_length', null, (string) mb_strlen( (string) $value ) );
         } elseif ( is_array( $value ) ) {
-            $properties[] = new Property('value_items', (string)count($value));
+            $properties[] = new Property( 'value_items', null, (string) count( $value ) );
         } else {
-            $properties[] = new Property('value_summary', 'non-scalar');
+            $properties[] = new Property( 'value_summary', null, 'non-scalar' );
         }
 
-        // Create an object reference using gravityform type with subtype for settings
-        $object_ref = new Object_Reference('gravityform', $option, "Setting: $option");
+        // Use null for the ID since this is a setting name, not a numeric form ID.
+        // This prevents Gravityform_Utility from trying to load it as a form.
+        $object_ref = new Object_Reference( 'gravityform', null, "Setting: $option" );
 
         $event = self::create_event( 'Gravity Forms Settings Updated', $object_ref, null, $properties );
         if ( $event ) {
@@ -200,20 +219,20 @@ final class GravityForms_Tracker {
 
     public static function on_form_duplicated( $form_id, $new_form_id ): void {
         $object_ref = new Object_Reference( 'gravityform', (int) $new_form_id, 'Duplicated From ' . (int) $form_id );
-        $event = self::create_event( 'Gravity Form Duplicated', $object_ref, null, array( new Property( 'source_form_id', (string) $form_id ), new Property( 'new_form_id', (string) $new_form_id ) ) );
+        $event = self::create_event( 'Gravity Form Duplicated', $object_ref, null, array( new Property( 'source_form_id', null, (string) $form_id ), new Property( 'new_form_id', null, (string) $new_form_id ) ) );
         if ( $event ) { $event->save(); }
     }
 
     public static function on_field_added( $form_id, $field_id, $form ): void {
         $object_ref = new Object_Reference( 'gravityform', (int) $form_id );
-        $props = array( new Property( 'field_id', (string) $field_id ), new Property( 'change', 'added' ) );
+        $props = array( new Property( 'field_id', null, (string) $field_id ), new Property( 'change', null, 'added' ) );
         $event = self::create_event( 'Gravity Form Field Added', $object_ref, null, $props );
         if ( $event ) { $event->save(); }
     }
 
     public static function on_field_deleted( $form_id, $field_id, $form ): void {
         $object_ref = new Object_Reference( 'gravityform', (int) $form_id );
-        $props = array( new Property( 'field_id', (string) $field_id ), new Property( 'change', 'deleted' ) );
+        $props = array( new Property( 'field_id', null, (string) $field_id ), new Property( 'change', null, 'deleted' ) );
         $event = self::create_event( 'Gravity Form Field Deleted', $object_ref, null, $props );
         if ( $event ) { $event->save(); }
     }
@@ -223,21 +242,21 @@ final class GravityForms_Tracker {
         $entry_id = isset( $entry['id'] ) ? (int) $entry['id'] : 0;
         $form_id  = isset( $entry['form_id'] ) ? (int) $entry['form_id'] : 0;
         $object_ref = new Object_Reference( 'gravityentry', $entry_id, 'Entry #' . $entry_id );
-        $props = array( new Property( 'form_id', (string) $form_id ), new Property( 'status', isset( $entry['status'] ) ? (string) $entry['status'] : '' ) );
+        $props = array( new Property( 'form_id', null, (string) $form_id ), new Property( 'status', null, isset( $entry['status'] ) ? (string) $entry['status'] : '' ) );
         $event = self::create_event( 'Gravity Entry Submitted', $object_ref, null, $props );
         if ( $event ) { $event->save(); }
     }
 
     public static function on_entry_updated( $entry_id, $updated_fields, $original_entry ): void {
         $object_ref = new Object_Reference( 'gravityentry', (int) $entry_id, 'Entry #' . (int) $entry_id );
-        $props = array( new Property( 'updated_fields', is_array( $updated_fields ) ? implode( ',', array_keys( $updated_fields ) ) : 'unknown' ) );
+        $props = array( new Property( 'updated_fields', null, is_array( $updated_fields ) ? implode( ',', array_keys( $updated_fields ) ) : 'unknown' ) );
         $event = self::create_event( 'Gravity Entry Updated', $object_ref, null, $props );
         if ( $event ) { $event->save(); }
     }
 
     public static function on_entry_deleted( $entry_id, $form_id ): void {
         $object_ref = new Object_Reference( 'gravityentry', (int) $entry_id, 'Entry #' . (int) $entry_id );
-        $props = array( new Property( 'form_id', (string) $form_id ) );
+        $props = array( new Property( 'form_id', null, (string) $form_id ) );
         $event = self::create_event( 'Gravity Entry Deleted', $object_ref, null, $props );
         if ( $event ) { $event->save(); }
     }
@@ -245,7 +264,7 @@ final class GravityForms_Tracker {
     public static function on_entry_status_changed( $entry_id, $new_status, $old_status, $form ): void {
         if ( $new_status === $old_status ) { return; }
         $object_ref = new Object_Reference( 'gravityentry', (int) $entry_id, 'Entry #' . (int) $entry_id );
-        $props = array( new Property( 'old_status', (string) $old_status ), new Property( 'new_status', (string) $new_status ) );
+        $props = array( new Property( 'old_status', null, (string) $old_status ), new Property( 'new_status', null, (string) $new_status ) );
         $event = self::create_event( 'Gravity Entry Status Changed', $object_ref, null, $props );
         if ( $event ) { $event->save(); }
     }
@@ -256,7 +275,7 @@ final class GravityForms_Tracker {
         $name = isset( $notification['name'] ) ? (string) $notification['name'] : ( 'Notification ' . $id );
         $type = isset( $notification['event'] ) ? (string) $notification['event'] : '';
         $object_ref = new Object_Reference( 'gravitynotification', $id, $name );
-        $props = array( new Property( 'type', $type ) );
+        $props = array( new Property( 'type', null, $type ) );
         $event = self::create_event( 'Gravity Notification Saved', $object_ref, null, $props );
         if ( $event ) { $event->save(); }
     }

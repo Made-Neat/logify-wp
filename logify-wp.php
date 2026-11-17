@@ -3,7 +3,7 @@
  * Plugin Name: Logify WP - Activity Log & User Audit Log
  * Plugin URI: https://logifywp.com
  * Description: Logify WP features advanced tracking to ensure awareness of all changes made to your WordPress website, including who made them and when.
- * Version: 1.3.2
+ * Version: 1.3.3
  * Author: Made Neat
  * Author URI: https://madeneat.com
  * Requires at least: 6.2
@@ -103,6 +103,7 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-theme-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-user-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-widget-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-gravityforms-tracker.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-beaverbuilder-tracker.php';
 // Setting tracker was redundant with Option_Tracker; not loading to avoid duplicate logs
 // require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-setting-tracker.php';
 
@@ -123,6 +124,7 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-widget-utility.php
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-gravityform-utility.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-gravityentry-utility.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-gravitynotification-utility.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-beaverbuilder-utility.php';
 
 //check website already has ActionScheduler library
 if(!class_exists('ActionScheduler')){
