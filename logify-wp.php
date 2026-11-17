@@ -3,9 +3,9 @@
  * Plugin Name: Logify WP – Activity Log & User Audit Log
  * Plugin URI: https://logifywp.com
  * Description: Logify WP features advanced tracking to ensure awareness of all changes made to your WordPress website, including who made them and when.
- * Version: 1.2.5
+ * Version: 1.2.6
  * Author: Made Neat
- * Author URI: https://madeneat.com.au
+ * Author URI: https://madeneat.com
  * Requires at least: 6.2
  * Text Domain: logify-wp
  * License: GPLv2 or later
@@ -17,7 +17,7 @@
  *
  * This plugin was created by Made Neat, a web development agency based in Australia. We specialize in
  * creating custom WordPress websites and plugins for businesses of all sizes. If you need help with
- * your WordPress website, please get in touch with us at https://madeneat.com.au.
+ * your WordPress website, please get in touch with us at https://madeneat.com.
  *
  * This plugin is released under the GPL2 license. You are free to use, modify, and distribute this
  * plugin as you see fit. We hope you find it useful!

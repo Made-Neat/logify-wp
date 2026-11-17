@@ -5,7 +5,7 @@ Tags: activity log, audit log, security, user tracking, event log
 Requires at least: 6.2
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 1.2.5
+Stable tag: 1.2.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Website: https://logifywp.com/
@@ -70,6 +70,9 @@ Yes, Logify WP includes role-based access control, allowing you to restrict acce
 
 Absolutely! Logify WP provides advanced search and filtering options, allowing you to filter logs by user, date, post type, action type, and more.
 
+### How can I report security bugs?
+
+You can report security bugs through the Patchstack Vulnerability Disclosure Program. The Patchstack team helps validate, triage and handle any security vulnerabilities. [Report a security vulnerability.]( https://patchstack.com/database/vdp/6069fd7e-a4f8-499a-8641-d86656d2268e )
 == Screenshots ==
 
 1. **Real-Time Monitoring** – Stay in control with live updates on every change happening on your WordPress site.
@@ -100,6 +103,9 @@ Absolutely! Logify WP provides advanced search and filtering options, allowing y
 = 1.2.5 =
 * Updated plugin name to "Logify WP – Activity Log & User Audit Log" for clarity and search visibility.
 * Improved short description for SEO and readability.
+
+= 1.2.6 =
+* Added VDP disclaimer and fixed Notes modal close button issue
 
 == Links ==
 
