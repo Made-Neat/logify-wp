@@ -252,6 +252,11 @@ class Admin {
 			self::enqueue_script( 'assets/js/dashboard-widget.js', array( 'jquery' ), 'auto', true );
 		}
 
+		if (strpos($hook, 'logify-wp') !== false) {
+			wp_enqueue_script('jquery-ui-dialog');
+			wp_enqueue_style('wp-jquery-ui-dialog');
+		}
+
 		// Settings.
 		if ( $hook === 'logify-wp_page_logify-wp-settings' ) {
 			self::enqueue_style( 'assets/css/settings.css' );
@@ -273,10 +278,6 @@ class Admin {
 	// Helper function for common setups
 	private static function setup_page($hook, $script_file, $nonce_action) {
 		wp_enqueue_editor();
-		
-		// Include jQuery UI Dialog
-		wp_enqueue_script('jquery-ui-dialog');
-		wp_enqueue_style('jquery-ui-dialog'); // Ensure styles for the dialog are loaded
 		
 		// Styles
 		self::enqueue_style('assets/css/log-page.css');
