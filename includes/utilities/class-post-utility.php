@@ -30,6 +30,7 @@ class Post_Utility extends Object_Utility {
 	 */
 	public static function exists( int|string $post_id ): bool {
 		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$count = (int) $wpdb->get_var(
 			$wpdb->prepare( 'SELECT COUNT(ID) FROM %i WHERE ID = %d', $wpdb->posts, $post_id )
 		);
@@ -267,6 +268,7 @@ class Post_Utility extends Object_Utility {
 		}
 
 		// Get the created datetime.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$created_datetime = $wpdb->get_var(
 			$wpdb->prepare(
 				"SELECT MIN(post_date) FROM %i WHERE (ID = %d OR post_parent = %d) AND post_date != '0000-00-00 00:00:00'",
@@ -286,19 +288,18 @@ class Post_Utility extends Object_Utility {
 	 */
 	public static function get_last_modified_datetime( WP_Post|int $post ): DateTime {
 		global $wpdb;
-	
+
 		// Load the post if necessary.
 		if ( is_int( $post ) ) {
 			$post = self::load( $post );
 		}
-	
+
 		// Get the last modified datetime.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$last_modified_datetime = $wpdb->get_var(
 			$wpdb->prepare(
-				"SELECT MAX(post_modified)
-				 FROM {$wpdb->posts}
-				 WHERE (ID = %d OR post_parent = %d)
-				   AND post_modified != '0000-00-00 00:00:00'",
+				"SELECT MAX(post_modified) FROM %i WHERE (ID = %d OR post_parent = %d) AND post_modified != '0000-00-00 00:00:00'",
+				$wpdb->posts,
 				$post->ID,
 				$post->ID
 			)
@@ -312,7 +313,6 @@ class Post_Utility extends Object_Utility {
 		// Convert the timestamp to a DateTime object as needed.
 		return DateTimes::create_datetime( $last_modified_datetime );
 	}
-	
 
 	/**
 	 * Get the properties of a post.

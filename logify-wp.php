@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: Logify WP – Activity Log & User Audit Log
+ * Plugin Name: Logify WP - Activity Log & User Audit Log
  * Plugin URI: https://logifywp.com
  * Description: Logify WP features advanced tracking to ensure awareness of all changes made to your WordPress website, including who made them and when.
- * Version: 1.2.6
+ * Version: 1.3.0
  * Author: Made Neat
  * Author URI: https://madeneat.com
  * Requires at least: 6.2
@@ -32,6 +32,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+if (!function_exists('get_plugin_data')) {
+    require_once ABSPATH . 'wp-admin/includes/plugin.php';
+}
+
 // Some useful globals.
 define( 'LOGIFY_WP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'LOGIFY_WP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
@@ -50,6 +54,7 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-types.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/helpers/class-urls.php';
 
 // Classes that encapsulate the core plugin data types.
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/models/class-error.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/models/class-event.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/models/class-eventmeta.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/models/class-property.php';
@@ -61,6 +66,7 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/repositories/class-event-repositor
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/repositories/class-eventmeta-repository.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/repositories/class-property-repository.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/repositories/class-note-repository.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/repositories/class-error-repository.php';
 
 // Classes that provide plugin functionality.
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-access-control.php';
@@ -72,11 +78,14 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-database.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-debug.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-log-page.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-notes-page.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-php-error-log.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-logger.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-main.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/services/class-plugin-settings.php';
 
 // Classes for tracking events.
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-async-tracker.php';
+require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-error-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-comment-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-core-tracker.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/trackers/class-media-tracker.php';
@@ -103,12 +112,16 @@ require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-theme-utility.php'
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-user-utility.php';
 require_once LOGIFY_WP_PLUGIN_DIR . 'includes/utilities/class-widget-utility.php';
 
-// require_once LOGIFY_WP_PLUGIN_DIR . 'includes/test.php';
+//check website already has ActionScheduler library
+if(!class_exists('ActionScheduler')){
+    // Require action scheduler library
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'action-scheduler' . DIRECTORY_SEPARATOR . 'action-scheduler.php';
+}
 
 // =================================================================================================
 
 // Register plugin hooks.
-add_action( 'plugins_loaded', array( 'Logify_WP\Main', 'init' ) );
+add_action( 'init', array( 'Logify_WP\Main', 'init' ) );
 register_activation_hook( __FILE__, array( 'Logify_WP\Main', 'activate' ) );
 register_deactivation_hook( __FILE__, array( 'Logify_WP\Main', 'deactivate' ) );
 register_uninstall_hook( __FILE__, array( 'Logify_WP\Main', 'uninstall' ) );
