@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: Logify WP
+ * Plugin Name: Logify WP – Activity Log & User Audit Log
  * Plugin URI: https://logifywp.com
  * Description: Logify WP features advanced tracking to ensure awareness of all changes made to your WordPress website, including who made them and when.
- * Version: 1.2.3
+ * Version: 1.2.5
  * Author: Made Neat
  * Author URI: https://madeneat.com.au
  * Requires at least: 6.2

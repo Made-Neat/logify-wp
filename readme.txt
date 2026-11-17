@@ -1,16 +1,16 @@
-=== Logify WP ===
+=== Logify WP – Activity Log & User Audit Log ===
 
 Contributors: madeneat
 Tags: activity log, audit log, security, user tracking, event log
 Requires at least: 6.2
 Tested up to: 6.7
 Requires PHP: 8.0
-Stable tag: 1.2.3
+Stable tag: 1.2.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Website: https://logifywp.com/
 
-Logify WP is a user-friendly plugin that tracks critical actions on your WordPress site, offering enhanced security and easy-to-use activity tracking.
+Logify WP – Activity Log & User Audit Log tracks critical changes, logins, and updates with searchable logs for site security.
 
 == Description ==
 
@@ -22,6 +22,8 @@ Built to be simple yet powerful, Logify WP features a clean layout of activity i
 
 ### Key Features:
 
+- **Activity Log Overview:** Get a complete chronological view of all logged activities across your WordPress site. Ideal for tracking patterns, diagnosing issues, and maintaining a transparent record of site events.
+- **User Audit Log:** Drill down into individual user activity with dedicated audit trails. See exactly what each user did, when, and from where, perfect for accountability and compliance.
 - **Track Core WordPress Activities:** Record actions on posts, pages, custom post types, taxonomies, plugins, themes, users, and more.
 - **Real-time Monitoring:** Get instant insights into who made changes, when, and where, via a secure **event log**.
 - **Action Notes (New!):** Add and search **notes** linked to actions for improved tracking and accountability.
@@ -91,6 +93,13 @@ Absolutely! Logify WP provides advanced search and filtering options, allowing y
 
 = 1.2.1 =
 * Fixed issue in Notes feature
+
+= 1.2.4 =
+* Fixed an issue where get_last_modified_datetime() could return null, causing a fatal error with certain custom post types.
+
+= 1.2.5 =
+* Updated plugin name to "Logify WP – Activity Log & User Audit Log" for clarity and search visibility.
+* Improved short description for SEO and readability.
 
 == Links ==
 
