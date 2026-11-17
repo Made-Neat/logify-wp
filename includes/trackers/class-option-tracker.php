@@ -46,7 +46,7 @@ class Option_Tracker {
 	public static function on_update_option( string $batch_id, string $option_name, mixed $old_value, mixed $new_value, int $acting_user_id, ?string $client_ip = null ) {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			if ( function_exists( 'error_log' ) ) {
-				error_log( '[Logify WP] on_update_option batch ' . $batch_id . ' for: ' . $option_name . ' | old: ' . var_export( $old_value, true ) . ' | new: ' . var_export( $new_value, true ) . ' | user: ' . $acting_user_id );
+				//error_log( '[Logify WP] on_update_option batch ' . $batch_id . ' for: ' . $option_name . ' | old: ' . var_export( $old_value, true ) . ' | new: ' . var_export( $new_value, true ) . ' | user: ' . $acting_user_id );
 			}
 		}
 

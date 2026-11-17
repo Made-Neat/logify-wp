@@ -10,8 +10,14 @@ namespace Logify_WP;
 /**
  * Class AS_Bloat_Cleaner
  *
- * Manages periodic cleanup of Action Scheduler jobs and logs to prevent database bloat.
- * Deletes old completed/failed actions and their logs in batches with time limits.
+ * Manages periodic cleanup of Action Scheduler records created by Logify WP to prevent
+ * database bloat. Runs every 10 minutes via cron to:
+ * - Delete aged Logify actions (middle_* hooks, logify_wp_process_errors) older than 3 days
+ * - Delete aged Action Scheduler log entries older than 3 days
+ * - Delete orphan log records (logs pointing to deleted actions)
+ * 
+ * Uses batched queries with a 20-second runtime limit to avoid long table locks.
+ * Targets actions in the 'logify' and 'logify-wp' Action Scheduler groups.
  */
 final class AS_Bloat_Cleaner {
 	/**
@@ -50,12 +56,7 @@ final class AS_Bloat_Cleaner {
 	private const LOG_BATCH_SIZE = 1000;
 
 	/**
-	 * Max args size (in bytes) before action is considered bloated.
-	 */
-	private const MAX_ARGS_SIZE = 8192;
-
-	/**
-	 * Prefix used for error_log output.
+	 * Prefix used for conditional debug output.
 	 */
 	private const LOG_PREFIX = '[Logify WP][BloatCleaner] ';
 
@@ -101,60 +102,25 @@ final class AS_Bloat_Cleaner {
 
 		$start = microtime( true );
 
-		// Calculate cutoff date (keep only recent actions/logs).
-		$cutoff_date = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - ( self::RETENTION_DAYS * DAY_IN_SECONDS ) );
+		// Calculate cutoff date (keep only recent actions/logs). Use UTC so comparisons match *_gmt columns.
+		$cutoff_date = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp', true ) - ( self::RETENTION_DAYS * DAY_IN_SECONDS ) );
 
 		self::log( sprintf( 'Run started; cutoff=%s', $cutoff_date ) );
 
-		// Phase 1: Delete actions with oversized or "middle_" hooks.
-		self::delete_bloated_actions( $wpdb, $start, $cutoff_date );
-
-		// Phase 2: Delete completed/failed actions older than cutoff.
+		// Step 1: Delete Logify-specific actions older than the retention window.
 		self::delete_aged_actions( $wpdb, $start, $cutoff_date );
 
-		// Phase 3: Delete aged logs.
+		// Step 2: Delete aged logs.
 		self::delete_aged_logs( $wpdb, $start, $cutoff_date );
 
-		// Phase 4: Delete orphan logs (action deleted but log remains).
+		// Step 3: Delete orphan logs (action deleted but logs remain).
 		self::delete_orphan_logs( $wpdb, $start );
 
 		self::log( 'Run finished.' );
 	}
 
 	/**
-	 * Delete actions with oversized args or "middle_" hooks (internal plugin cleanup).
-	 *
-	 * @param \wpdb   $wpdb        Database object.
-	 * @param float   $start       Start microtime.
-	 * @param string  $cutoff_date Cutoff date for retention.
-	 */
-	private static function delete_bloated_actions( $wpdb, $start, $cutoff_date ): void {
-		do {
-			if ( self::time_exceeded( $start ) ) {
-				break;
-			}
-
-			$ids = $wpdb->get_col(
-				$wpdb->prepare(
-					"SELECT action_id FROM {$wpdb->prefix}actionscheduler_actions WHERE (hook LIKE %s OR hook = %s OR LENGTH(args) > %d) LIMIT %d",
-					'middle\\\_%',
-					'logify_wp_process_errors',
-					self::MAX_ARGS_SIZE,
-					self::ACTION_BATCH_SIZE
-				)
-			);
-			if ( empty( $ids ) ) {
-				self::log( 'Phase1: no bloated actions found.' );
-				break;
-			}
-
-			$deleted = self::delete_action_ids( $ids, $start );
-			self::log( sprintf( 'Phase1: deleted %d bloated actions (batch size=%d).', $deleted, count( $ids ) ) );
-		} while ( count( $ids ) >= self::ACTION_BATCH_SIZE );
-	}
-
-	/**
-	 * Delete completed/failed actions older than cutoff date.
+	 * Delete Logify actions (any status) older than the cutoff date.
 	 *
 	 * @param \wpdb   $wpdb        Database object.
 	 * @param float   $start       Start microtime.
@@ -168,23 +134,27 @@ final class AS_Bloat_Cleaner {
 
 			$ids = $wpdb->get_col(
 				$wpdb->prepare(
-					"SELECT action_id FROM {$wpdb->prefix}actionscheduler_actions WHERE status IN ('complete','failed') AND COALESCE(last_attempt_gmt, scheduled_date_gmt) < %s LIMIT %d",
+					"SELECT a.action_id FROM {$wpdb->prefix}actionscheduler_actions a INNER JOIN {$wpdb->prefix}actionscheduler_groups g ON a.group_id = g.group_id WHERE (a.hook LIKE %s OR a.hook = %s) AND g.slug IN (%s,%s) AND COALESCE(a.last_attempt_gmt, a.scheduled_date_gmt) < %s LIMIT %d",
+					'middle_%',
+					'logify_wp_process_errors',
+					'logify',
+					'logify-wp',
 					$cutoff_date,
 					self::ACTION_BATCH_SIZE
 				)
 			);
 			if ( empty( $ids ) ) {
-				self::log( 'Phase2: no aged actions found.' );
+				self::log( 'Actions: no aged items found.' );
 				break;
 			}
 
 			$deleted = self::delete_action_ids( $ids, $start );
-			self::log( sprintf( 'Phase2: deleted %d aged actions (batch size=%d).', $deleted, count( $ids ) ) );
+			self::log( sprintf( 'Actions: deleted %d aged items (batch size=%d).', $deleted, count( $ids ) ) );
 		} while ( count( $ids ) >= self::ACTION_BATCH_SIZE );
 	}
 
 	/**
-	 * Delete logs older than cutoff date.
+	 * Delete Action Scheduler logs older than the cutoff date.
 	 *
 	 * @param \wpdb   $wpdb        Database object.
 	 * @param float   $start       Start microtime.
@@ -206,17 +176,17 @@ final class AS_Bloat_Cleaner {
 				)
 			);
 			if ( empty( $log_ids ) ) {
-				self::log( 'Phase3: no aged logs found.' );
+				self::log( 'Logs: no aged records found.' );
 				break;
 			}
 
 			$deleted = self::delete_log_ids( $wpdb, $logs_table, $log_ids, $start );
-			self::log( sprintf( 'Phase3: deleted %d aged logs (batch size=%d).', $deleted, count( $log_ids ) ) );
+			self::log( sprintf( 'Logs: deleted %d aged records (batch size=%d).', $deleted, count( $log_ids ) ) );
 		} while ( count( $log_ids ) >= self::LOG_BATCH_SIZE );
 	}
 
 	/**
-	 * Delete orphan logs (logs for actions that have been deleted).
+	 * Delete orphan Action Scheduler logs (log rows pointing at missing actions).
 	 *
 	 * @param \wpdb $wpdb  Database object.
 	 * @param float $start Start microtime.
@@ -235,12 +205,12 @@ final class AS_Bloat_Cleaner {
 				)
 			);
 			if ( empty( $log_ids ) ) {
-				self::log( 'Phase4: no orphan logs found.' );
+				self::log( 'Logs: no orphan records found.' );
 				break;
 			}
 
 			$deleted = self::delete_log_ids( $wpdb, $logs_table, $log_ids, $start );
-			self::log( sprintf( 'Phase4: deleted %d orphan logs (batch size=%d).', $deleted, count( $log_ids ) ) );
+			self::log( sprintf( 'Logs: deleted %d orphan records (batch size=%d).', $deleted, count( $log_ids ) ) );
 		} while ( count( $log_ids ) >= self::LOG_BATCH_SIZE );
 	}
 
@@ -305,7 +275,8 @@ final class AS_Bloat_Cleaner {
 	 */
 	private static function log( string $message ): void {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			Debug::info( self::LOG_PREFIX . $message );
+			// Uncomment for verbose runtime diagnostics:
+			// Debug::info( self::LOG_PREFIX . $message );
 		}
 	}
 }
