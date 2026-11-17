@@ -364,15 +364,14 @@
 }
 
 button.ui-button.ui-corner-all.ui-widget.ui-button-icon-only.ui-dialog-titlebar-close {
-  float: right;
-}
-button.ui-button.ui-corner-all.ui-widget.ui-button-icon-only.ui-dialog-titlebar-close {
     border: none !important;    
     background: none !important;
     position: absolute;
     top: 0;
     font-size: 0;
     right: 0;
+    float: right;
+    display: contents;
 }
 span.ui-button-icon.ui-icon.ui-icon-closethick {
     display: none;
@@ -381,4 +380,10 @@ textarea#edit-note-content {
     width: 99%;
     border: none;
     margin-top: 2px;
+}
+body .ui-dialog .ui-dialog-title {
+    width: 95%;
+}
+.ui-dialog-titlebar.ui-corner-all.ui-widget-header.ui-helper-clearfix.ui-draggable-handle{
+  display: flex;
 }

@@ -186,6 +186,7 @@ class Event {
 		?array $properties = null,
 		null|int|WP_User $acting_user = null,
 		bool $all_users = false
+	, ?string $client_ip = null
 	): ?Event {
 		// If the event is about an object deletion, this is where we'd store the details of the
 		// deleted object in the database. We want to do it before user checking so every object
@@ -230,8 +231,10 @@ class Event {
 		$event->user_id        = $user_data['id'];
 		$event->user_name      = $user_data['name'];
 		$event->user_role      = implode( ', ', $user_data['roles'] );
-		$event->user_ip        = User_Utility::get_ip();
-		$event->user_location  = User_Utility::get_location( $event->user_ip );
+		// Prefer the client IP captured at enqueue time when available. Fall back to
+		// server-side detection if not provided.
+		$event->user_ip        = $client_ip ?? User_Utility::get_ip();
+		$event->user_location  = $event->user_ip ? User_Utility::get_location( $event->user_ip ) : null;
 		$event->user_agent     = User_Utility::get_user_agent();
 		$event->event_type     = $event_type;
 		$event->object_type    = $object_type;

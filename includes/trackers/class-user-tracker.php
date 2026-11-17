@@ -48,33 +48,33 @@ class User_Tracker
 
 		//User Login
 		add_action('wp_login', [__NAMESPACE__ . '\Async_Tracker', 'async_wp_login'], 10, 2);
-		add_action('middle_wp_login', array(__CLASS__, 'on_wp_login'), 10, 2);
+		add_action('middle_wp_login', array(__CLASS__, 'on_wp_login'), 10, 3);
 
 		add_action('wp_login_failed', [__NAMESPACE__ . '\Async_Tracker', 'async_wp_login_failed'], 10, 2);
-		add_action('middle_wp_login_failed', array(__CLASS__, 'on_wp_login_failed'), 10, 2);
+		add_action('middle_wp_login_failed', array(__CLASS__, 'on_wp_login_failed'), 10, 3);
 
 		// User logout.
 		add_action('wp_logout', [__NAMESPACE__ . '\Async_Tracker', 'async_wp_logout'], 10, 1);
-		add_action('middle_wp_logout', array(__CLASS__, 'on_wp_logout'), 10, 1);
+		add_action('middle_wp_logout', array(__CLASS__, 'on_wp_logout'), 10, 2);
 
 		// User activity.
-		add_action('wp_loaded', [__NAMESPACE__ . '\Async_Tracker', 'async_wp_loaded']);
-		add_action('middle_wp_loaded', array(__CLASS__, 'on_wp_loaded'),10,1);
+		//add_action('wp_loaded', [__NAMESPACE__ . '\Async_Tracker', 'async_wp_loaded']);
+		//add_action('middle_wp_loaded', array(__CLASS__, 'on_wp_loaded'),10,1);
 
 		// New user registration.
 		add_action('user_register', [__NAMESPACE__ . '\Async_Tracker', 'async_user_register'], 10, 2);
-		add_action('middle_user_register', array(__CLASS__, 'on_user_register'), 10, 2);
+		add_action('middle_user_register', array(__CLASS__, 'on_user_register'), 10, 3);
 
 		// User deletion.
 		add_action('delete_user', [__NAMESPACE__ . '\Async_Tracker', 'async_delete_user'], 10, 3);
-		add_action('middle_delete_user', array(__CLASS__, 'on_delete_user'), 10, 3);
+		add_action('middle_delete_user', array(__CLASS__, 'on_delete_user'), 10, 4);
 
 		// User update.
-		add_action('profile_update', [__NAMESPACE__ . '\Async_Tracker', 'async_profile_update'], 10, 3);
-		add_action('middle_profile_update', array(__CLASS__, 'on_profile_update'), 10, 3);
+		add_action('profile_update', [__NAMESPACE__ . '\Async_Tracker', 'async_profile_update'], 10, 2);
+		add_action('middle_profile_update', array(__CLASS__, 'on_profile_update'), 10, 5);
 
 		add_action('update_user_meta', [__NAMESPACE__ . '\Async_Tracker', 'async_update_user_meta'], 10, 4);
-		add_action('middle_update_user_meta', array(__CLASS__, 'on_update_user_meta'), 10, 4);
+		add_action('middle_update_user_meta', array(__CLASS__, 'on_update_user_meta'), 10, 6);
 
 		// Shutdown hook.
 		add_action('shutdown', [__NAMESPACE__ . '\Async_Tracker', 'async_shutdown_user'], 10, 0);
@@ -89,8 +89,8 @@ class User_Tracker
 	 * @param WP_User $user       The WP_User object of the user that logged in.
 	 */
 
-	public static function on_wp_login($user_login, $user_id)
-	{
+	public static function on_wp_login($user_login, $user_id, ?string $client_ip = null)
+	{ 
 		// This event does not require an object, since the acting user *is* the object, but it does
 		// require an object type ('user') in order to be grouped properly.
 		// Also, the acting user must be provided, because there is no current logged in user at the
@@ -99,7 +99,7 @@ class User_Tracker
 		//get User Object by user_id
 		$user = get_user_by('ID', $user_id);
 
-		$event = Event::create('User Login', 'user', null, null, $user);
+		$event = Event::create('User Login', 'user', null, null, $user, false, $client_ip);
 
 		// If the event could not be created, return.
 		if (!$event) {
@@ -118,16 +118,23 @@ class User_Tracker
 	 */
 
 
-	public static function on_wp_login_failed($username, $error_s)
+	public static function on_wp_login_failed($username, $error_s, ?string $client_ip = null)
 	{
-		//Unserialize Error object
-		$error = unserialize($error_s);
+		// Parse error payload safely.
+		$error = null;
+		if (is_string($error_s) && Serialization::try_unserialize($error_s, $error)) {
+			// ok
+		} elseif (is_object($error_s)) {
+			$error = $error_s;
+		} else {
+			Debug::warning('logify-debug: on_wp_login_failed - unexpected error payload type=' . gettype($error_s));
+		}
 		// Create the event.
 		// This event does not require an object, since the acting user *is* the object, but it does
 		// require an object type ('user') in order to be grouped properly.
 
 
-		$event = Event::create('Failed Login', 'user', all_users: true);
+		$event = Event::create('Failed Login', 'user', all_users: true, client_ip: $client_ip);
 		// If the event could not be created, exit. This shouldn't happen, because we track all
 		// failed logins.
 		if (!$event) {
@@ -148,13 +155,13 @@ class User_Tracker
 	 * @param int $user_id The ID of the user that logged out.
 	 */
 
-	public static function on_wp_logout(int $user_id)
+	public static function on_wp_logout(int $user_id, ?string $client_ip = null)
 	{
 		// This event does not require an object, since the acting user *is* the object, but it does
 		// require an object type ('user') in order to be grouped properly.
 		// Also, the acting user must be provided, because there is no current logged-in user at the
 		// time this event occurs.
-		$event = Event::create('User Logout', 'user', null, null, $user_id);
+		$event = Event::create('User Logout', 'user', null, null, $user_id, false, $client_ip);
 
 		// If the event could not be created, we aren't tracking this user.
 		if (!$event) {
@@ -167,12 +174,13 @@ class User_Tracker
 	/**
 	 * User registration.
 	 *
-	 * @param int   $user_id  The ID of the user being registered.
-	 * @param array $userdata The data for the user that was registered.
+	 * @param int    $user_id   The ID of the user being registered.
+	 * @param array  $userdata  The data for the user that was registered.
+	 * @param string $client_ip Client IP address.
 	 */
-	public static function on_user_register(int $user_id, array $userdata)
+	public static function on_user_register(int $user_id, array $userdata, ?string $client_ip = null)
 	{
-		Logger::log_event('User Registered', User_Utility::load($user_id));
+		Logger::log_event('User Registered', User_Utility::load($user_id), null, null, null, false, $client_ip);
 	}
 
 	/**
@@ -181,13 +189,23 @@ class User_Tracker
 	 * @param int     $user_id  The ID of the user that was deleted.
 	 * @param ?int    $reassign The ID of the user that the data was reassigned to.
 	 * @param WP_User $user     The WP_User object of the user that was deleted.
+	 * @param string  $client_ip Client IP address.
 	 */
-	public static function on_delete_user(int $user_id, ?int $reassign, $serialize_user)
+	public static function on_delete_user(int $user_id, ?int $reassign, $serialize_user, ?string $client_ip = null)
 	{
 		global $wpdb;
 
-		//Unserialize User Object
-		$user = unserialize($serialize_user);
+		// Parse user payload safely.
+		$user = null;
+		if (is_string($serialize_user) && Serialization::try_unserialize($serialize_user, $user)) {
+			// ok
+		} elseif (is_object($serialize_user)) {
+			$user = $serialize_user;
+		} elseif (is_array($serialize_user)) {
+			$user = (object) $serialize_user;
+		} else {
+			Debug::warning('logify-debug: on_delete_user - unable to parse $serialize_user; type=' . gettype($serialize_user));
+		}
 		// Get the user's properties.
 		$props = User_Utility::get_properties($user);
 
@@ -219,7 +237,7 @@ class User_Tracker
 		}
 
 		// Log the event.
-		Logger::log_event('User Deleted', $user, self::$eventmetas, $props);
+		Logger::log_event('User Deleted', $user, self::$eventmetas, $props, null, false, $client_ip);
 	}
 
 	/**
@@ -229,37 +247,49 @@ class User_Tracker
 	 * @param WP_User $user     The WP_User object of the user before the update.
 	 * @param array   $userdata The data for the user after the update.
 	 */
-	public static function on_profile_update($user_id, $serialize_user, $userdata)
-	{
-		global $wpdb;
+	public static function on_profile_update(int $user_id, $serialize_user, array $userdata, ?int $acting_user_id = null, ?string $client_ip = null)
+    {
+        global $wpdb;
 
-		//Unserialize User Object
-		$user = unserialize($serialize_user);
-		// Compare values and make note of any changes.
-		foreach ($user->data as $key => $value) {
-			// Process values.
-			$val = Types::process_database_value($key, $value);
-			$new_val = Types::process_database_value($key, $userdata[$key]);
-
-			// If the value has changed, add the before and after values to the properties.
-			if (!Types::are_equal($val, $new_val)) {
-
-				// Create the event if it doesn't already exist.
-				if (!self::$profile_update_event) {
-					self::$profile_update_event = Event::create('User Updated', $user);
-
-					// If the event could not be created, exit the method.
-					if (!self::$profile_update_event) {
-						return;
-					}
-				}
-
-				// Add the property.
-				self::$profile_update_event->set_prop($key, $wpdb->users, $val, $new_val);
-			}
+        //Unserialize User Object safely
+        if (is_string($serialize_user)) {
+            $user = null;
+            Serialization::try_unserialize($serialize_user, $user);
+        } elseif (is_array($serialize_user)) {
+            $user = (object) $serialize_user;
+        } else {
+            $user = $serialize_user;
+        }
+		if (!is_object($user)) {
+			Debug::warning('logify-debug: on_profile_update expected object, got ' . gettype($user));
+			return;
 		}
-	}
+        // Compare values and make note of any changes.
+		$userdata = is_array($userdata) ? $userdata : array();
+		foreach ($user->data as $key => $value) {
+            // Process values.
+            $val = Types::process_database_value($key, $value);
+			$new_raw = $userdata[$key] ?? null;
+			$new_val = Types::process_database_value($key, $new_raw);
 
+            // If the value has changed, add the before and after values to the properties.
+            if (!Types::are_equal($val, $new_val)) {
+
+                // Create the event if it doesn't already exist.
+				if (!self::$profile_update_event) {
+					self::$profile_update_event = Event::create('User Updated', $user, null, null, $acting_user_id, false, $client_ip);
+
+                    // If the event could not be created, exit the method.
+                    if (!self::$profile_update_event) {
+                        return;
+                    }
+                }
+
+                // Add the property.
+                self::$profile_update_event->set_prop($key, $wpdb->users, $val, $new_val);
+            }
+        }
+    }
 	/**
 	 * User meta update.
 	 *
@@ -268,47 +298,46 @@ class User_Tracker
 	 * @param string $meta_key   The key of the meta data.
 	 * @param mixed  $meta_value The new value of the meta data.
 	 */
-	public static function on_update_user_meta(int $meta_id, int $user_id, string $meta_key, mixed $meta_value)
-	{
-		global $wpdb;
+	public static function on_update_user_meta(int $meta_id, int $user_id, string $meta_key, mixed $meta_value, ?int $acting_user_id = null, ?string $client_ip = null)
+    {
+        global $wpdb;
 
-		// Ignore changes to session tokens.
-		if ($meta_key === 'session_tokens') {
-			return;
-		}
+        // Ignore changes to session tokens.
+        if ($meta_key === 'session_tokens') {
+            return;
+        }
 
-		// Get the current value.
-		$current_value = get_user_meta($user_id, $meta_key, true);
+        // Get the current value.
+        $current_value = get_user_meta($user_id, $meta_key, true);
 
-		// Process values.
-		$val = Types::process_database_value($meta_key, $current_value);
-		$new_val = Types::process_database_value($meta_key, $meta_value);
+        // Process values.
+        $val = Types::process_database_value($meta_key, $current_value);
+        $new_val = Types::process_database_value($meta_key, $meta_value);
 
-		// If the value has changed, add the before and after values to the properties array.
-		if (!Types::are_equal($val, $new_val)) {
+        // If the value has changed, add the before and after values to the properties array.
+        if (!Types::are_equal($val, $new_val)) {
 
-			// Create the event if it doesn't already exist.
+            // Create the event if it doesn't already exist.
 			if (!self::$profile_update_event) {
-				// The event will not be created if the current user isn't logged in or if the
-				// current user has a role that isn't being tracked.
-				$user_ref = new Object_Reference('user', $user_id);
-				self::$profile_update_event = Event::create('User Updated', $user_ref);
+                // The event will not be created if the current user isn't logged in or if the
+                // current user has a role that isn't being tracked.
+                $user_ref = new Object_Reference('user', $user_id);
+				self::$profile_update_event = Event::create('User Updated', $user_ref, null, null, $acting_user_id, false, $client_ip);
 
-				// If the event could not be created, bail.
-				if (!self::$profile_update_event) {
-					return;
-				}
-			}
+                // If the event could not be created, bail.
+                if (!self::$profile_update_event) {
+                    return;
+                }
+            }
 
-			// If we have an event, add the new property.
-			self::$profile_update_event->set_prop($meta_key, $wpdb->usermeta, $val, $new_val);
-		}
-	}
-
+            // If we have an event, add the new property.
+            self::$profile_update_event->set_prop($meta_key, $wpdb->usermeta, $val, $new_val);
+        }
+    }
 	/**
 	 * Log user activity.
 	 */
-	public static function on_wp_loaded($user)
+	public static function on_wp_loaded($user, ?string $client_ip = null)
 	{
 		// Ignore AJAX requests, as it's likely WP doing something and not the user.
 		// The user has probably just left the web page open in the browser while they do something
@@ -368,7 +397,7 @@ class User_Tracker
 		// If we're not continuing an existing session, record the start of a new one.
 		if ($create_new_event) {
 			// Create a new activity event.
-			$event = Event::create($event_type, 'user', null, null, $user);
+			$event = Event::create($event_type, 'user', null, null, $user, false, $client_ip);
 
 			// If the event could not be created, bail.
 			if (!$event) {

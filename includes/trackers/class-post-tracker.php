@@ -45,35 +45,41 @@ class Post_Tracker
 	{
 		// Track post creation and update.
 		add_action('save_post', [__NAMESPACE__ . '\Async_Tracker', 'async_save_post'], 10, 3);
-		add_action('middle_save_post', array(__CLASS__, 'on_save_post'), 10, 4);
-		// add_action('save_post', array(__CLASS__, 'on_save_post'), 10, 3);
+		// on_save_post now accepts an optional client IP as the 5th argument
+		add_action('middle_save_post', array(__CLASS__, 'on_save_post'), 10, 5);
 
 		add_action('pre_post_update', [__NAMESPACE__ . '\Async_Tracker', 'async_pre_post_update'], 10, 2);
-		add_action('middle_pre_post_update', array(__CLASS__, 'on_pre_post_update'), 10, 3);
+		// on_pre_post_update now accepts optional client IP as 4th arg
+		add_action('middle_pre_post_update', array(__CLASS__, 'on_pre_post_update'), 10, 4);
 
 		add_action('post_updated', [__NAMESPACE__ . '\Async_Tracker', 'async_post_updated'], 10, 3);
-		add_action('middle_post_updated', array(__CLASS__, 'on_post_updated'), 10, 4);
+		// on_post_updated now accepts optional client IP as 5th arg
+		add_action('middle_post_updated', array(__CLASS__, 'on_post_updated'), 10, 5);
 
 		add_action('update_post_meta', [__NAMESPACE__ . '\Async_Tracker', 'async_update_post_meta'], 10, 4);
-		add_action('middle_update_post_meta', array(__CLASS__, 'on_update_post_meta'), 10, 5);
+		// on_update_post_meta now accepts optional client IP as 6th arg
+		add_action('middle_update_post_meta', array(__CLASS__, 'on_update_post_meta'), 10, 6);
 
 		// Post status change.
 		add_action('transition_post_status', [__NAMESPACE__ . '\Async_Tracker', 'async_transition_post_status'], 10, 3);
-		add_action('middle_transition_post_status', array(__CLASS__, 'on_transition_post_status'), 10, 4);
+		// on_transition_post_status now accepts optional client IP as 5th arg
+		add_action('middle_transition_post_status', array(__CLASS__, 'on_transition_post_status'), 10, 5);
 
 		// Track post deletion.
 		add_action('before_delete_post', [__NAMESPACE__ . '\Async_Tracker', 'async_before_delete_post'], 10, 2);
-		add_action('middle_before_delete_post', array(__CLASS__, 'on_before_delete_post'), 10, 3);
+		// on_before_delete_post now accepts optional client IP as 4th arg
+		add_action('middle_before_delete_post', array(__CLASS__, 'on_before_delete_post'), 10, 4);
 
 		add_action('delete_post', [__NAMESPACE__ . '\Async_Tracker', 'async_delete_post'], 10, 2);
-		add_action('middledelete_post', array(__CLASS__, 'on_delete_post'), 10, 2);
+		add_action('middle_delete_post', array(__CLASS__, 'on_delete_post'), 10, 4);
 
 		// Track linking and unlinking of terms and posts.
 		add_action('added_term_relationship', [__NAMESPACE__ . '\Async_Tracker', 'async_added_term_relationship'], 10, 3);
 		add_action('middle_added_term_relationship', array(__CLASS__, 'on_added_term_relationship'), 10, 3);
 
 		add_action('wp_after_insert_post', [__NAMESPACE__ . '\Async_Tracker', 'async_wp_after_insert_post'], 10, 4);
-		add_action('middle_wp_after_insert_post', array(__CLASS__, 'on_wp_after_insert_post'), 10, 5);
+		// on_wp_after_insert_post now accepts optional client IP as 6th arg
+		add_action('middle_wp_after_insert_post', array(__CLASS__, 'on_wp_after_insert_post'), 10, 6);
 
 		add_action('deleted_term_relationships', [__NAMESPACE__ . '\Async_Tracker', 'async_deleted_term_relationships'], 10, 3);
 		add_action('middle_deleted_term_relationships', array(__CLASS__, 'on_deleted_term_relationships'), 10, 3);
@@ -100,11 +106,21 @@ class Post_Tracker
 	 * @param WP_Post $post    The post object.
 	 * @param bool    $update  Whether this is an update or a new post.
 	 */
-	public static function on_save_post(int $post_id, $serialize_post, bool $update, int $acting_user_id)
+	public static function on_save_post(int $post_id, $serialize_post, bool $update, int $acting_user_id, ?string $client_ip = null)
 	{
 
-		// Unserialize Post object
-		$post = unserialize($serialize_post);
+		// Parse post payload into an object safely.
+		$post = null;
+		if (is_string($serialize_post) && Serialization::try_unserialize($serialize_post, $post)) {
+			// ok
+		} elseif (is_object($serialize_post)) {
+			$post = $serialize_post;
+		} elseif (is_array($serialize_post)) {
+			$post = (object) $serialize_post;
+		} else {
+			Debug::warning('logify-debug: on_save_post - unable to parse $serialize_post; type=' . gettype($serialize_post));
+		}
+
 		// Ignore updates. We track post updates by tracking the creation of revisions, which
 		// enables us to link to the compare revisions page.
 
@@ -117,7 +133,7 @@ class Post_Tracker
 			return;
 		}
 
-		Debug::info('on_save_post');
+		//Debug::info('on_save_post');
 
 		// Check if we're creating or updating. If this is a revision, we're updating the post.
 		// Otherwise, we're creating a new one.
@@ -139,7 +155,7 @@ class Post_Tracker
 		$event_type_verb = self::$creating || $post->post_status === 'auto-draft' ? 'Created' : 'Updated';
 
 		// Get the event.
-		$event = self::get_update_post_event($event_type_verb, $post, $acting_user_id);
+		$event = self::get_update_post_event($event_type_verb, $post, $acting_user_id, $client_ip);
 		if (!$event) {
 			return;
 		}
@@ -165,14 +181,14 @@ class Post_Tracker
 	 * @param int   $post_id The ID of the post being updated.
 	 * @param array $data    The data for the post.
 	 */
-	public static function on_pre_post_update(int $post_id, array $data, $acting_user_id)
+	public static function on_pre_post_update(int $post_id, array $data, $acting_user_id, ?string $client_ip = null)
 	{
 		global $wpdb;
 
-		Debug::info('on_pre_post_update');
+		//Debug::info('on_pre_post_update');
 
 		// Get the new event.
-		$event = self::get_update_post_event('Updated', $post_id, $acting_user_id);
+		$event = self::get_update_post_event('Updated', $post_id, $acting_user_id, $client_ip);
 		if (!$event) {
 			return;
 		}
@@ -191,12 +207,30 @@ class Post_Tracker
 	 * @param WP_Post $post_after   Post object following the update.
 	 * @param WP_Post $post_before  Post object before the update.
 	 */
-	public static function on_post_updated(int $post_id, $serialize_post_after, $serialize_post_before, $acting_user_id)
+	public static function on_post_updated(int $post_id, $serialize_post_after, $serialize_post_before, $acting_user_id, ?string $client_ip = null)
 	{
 
-		$post_after = unserialize($serialize_post_after);
-		$post_before = unserialize($serialize_post_before);
-		Debug::info('on_post_updated');
+		// Deserialize post objects safely
+		if (is_string($serialize_post_after)) {
+			$post_after = null;
+			Serialization::try_unserialize($serialize_post_after, $post_after);
+		} elseif (is_array($serialize_post_after)) {
+			$post_after = (object) $serialize_post_after;
+		} else {
+			$post_after = $serialize_post_after;
+		}
+		if (is_string($serialize_post_before)) {
+			$post_before = null;
+			Serialization::try_unserialize($serialize_post_before, $post_before);
+		} elseif (is_array($serialize_post_before)) {
+			$post_before = (object) $serialize_post_before;
+		} else {
+			$post_before = $serialize_post_before;
+		}
+		if (!is_object($post_after) || !is_object($post_before)) {
+			Debug::warning('logify-debug: on_post_updated got unexpected types: post_after=' . gettype($post_after) . ' post_before=' . gettype($post_before));
+		}
+		//Debug::info('on_post_updated');
 
 		// Get changes to the post.
 		$props = Post_Utility::get_changes($post_before, $post_after);
@@ -207,7 +241,7 @@ class Post_Tracker
 		// If any changes remain, update the event.
 		if (!empty($props)) {
 			// Get the new event.
-			$event = self::get_update_post_event('Updated', $post_after, $acting_user_id);
+			$event = self::get_update_post_event('Updated', $post_after, $acting_user_id, $client_ip);
 			if (!$event) {
 				return;
 			}
@@ -225,7 +259,7 @@ class Post_Tracker
 	 * @param string $meta_key   The key of the meta data.
 	 * @param mixed  $meta_value The new value of the meta data.
 	 */
-	public static function on_update_post_meta(int $meta_id, int $post_id, string $meta_key, mixed $meta_value, $acting_user_id)
+	public static function on_update_post_meta(int $meta_id, int $post_id, string $meta_key, mixed $meta_value, $acting_user_id, ?string $client_ip = null)
 	{
 		global $wpdb;
 
@@ -234,12 +268,29 @@ class Post_Tracker
 			return;
 		}
 
-		// Some changes are uninteresting.
-		if (in_array($meta_key, array('_edit_lock', '_edit_last'))) {
+		// Only log user-facing meta keys. Expand this list as needed for your site.
+		$user_facing_meta = array(
+			// Common user-facing meta keys:
+			'_thumbnail_id',
+			'_wp_page_template',
+			'_menu_item_menu_item_type',
+			'_menu_item_object_id',
+			'_menu_item_object',
+			'_menu_item_parent_id',
+			'_menu_item_position',
+			'_menu_item_type',
+			// Add more as needed...
+		);
+		if (!in_array($meta_key, $user_facing_meta, true)) {
+			if (defined('WP_DEBUG') && WP_DEBUG && function_exists('error_log')) {
+				error_log('[Logify WP] Post_Tracker::on_update_post_meta skipping non-user meta: ' . $meta_key . ' for post_id: ' . $post_id);
+			}
 			return;
 		}
 
-		Debug::info('Post_Tracker::on_update_post_meta');
+		if (defined('WP_DEBUG') && WP_DEBUG && function_exists('error_log')) {
+			error_log('[Logify WP] Post_Tracker::on_update_post_meta logging meta: ' . $meta_key . ' for post_id: ' . $post_id . ' | value: ' . var_export($meta_value, true));
+		}
 
 		// Get the current value.
 		$current_value = get_post_meta($post_id, $meta_key, true);
@@ -250,7 +301,7 @@ class Post_Tracker
 
 		if (!Types::are_equal($val, $new_val)) {
 			// Get the new event.
-			$event = self::get_update_post_event('Updated', $post_id, $acting_user_id);
+			$event = self::get_update_post_event('Updated', $post_id, $acting_user_id, $client_ip);
 			if (!$event) {
 				return;
 			}
@@ -258,7 +309,7 @@ class Post_Tracker
 			// Update the post meta.
 			$event->set_prop($meta_key, $wpdb->postmeta, $val, $new_val);
 		}
-	}
+	} 
 
 	// =============================================================================================
 	// Post status change.
@@ -273,13 +324,23 @@ class Post_Tracker
 	 * @param string  $old_status Old post status.
 	 * @param WP_Post $post       Post object.
 	 */
-	public static function on_transition_post_status(string $new_status, string $old_status, $serialize_post, $acting_user_id)
+	public static function on_transition_post_status(string $new_status, string $old_status, $serialize_post, $acting_user_id, ?string $client_ip = null)
 	{
 		global $wpdb;
-		// unserialize post object
-		$post = unserialize($serialize_post);
+		
+		// Parse post payload safely.
+		$post = null;
+		if (is_string($serialize_post) && Serialization::try_unserialize($serialize_post, $post)) {
+			// ok
+		} elseif (is_object($serialize_post)) {
+			$post = $serialize_post;
+		} elseif (is_array($serialize_post)) {
+			$post = (object) $serialize_post;
+		} else {
+			Debug::warning('logify-debug: on_transition_post_status - unable to parse $serialize_post; type=' . gettype($serialize_post));
+		}
 		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		error_log("POSTTYPE:");
+
 		// Ignore navigation menu items.
 		if ($post->post_type === 'nav_menu_item') {
 			return;
@@ -301,7 +362,7 @@ class Post_Tracker
 			return;
 		}
 
-		Debug::info('on_transition_post_status', $post->ID, $old_status, $new_status);
+		//Debug::info('on_transition_post_status', $post->ID, $old_status, $new_status);
 
 		// Get the post type.
 		$post_type = Post_Utility::get_post_type_singular_name($post->post_type);
@@ -313,7 +374,7 @@ class Post_Tracker
 		$event_type = "$post_type $event_type_verb";
 
 		// Create the event.
-		$event = Event::create($event_type, $post, null, null, $acting_user_id);
+	$event = Event::create($event_type, $post, null, null, $acting_user_id, false, $client_ip);
 
 		// If the event could not be created, we aren't tracking this user.
 		if (!$event) {
@@ -347,23 +408,32 @@ class Post_Tracker
 	 * @param int     $post_id Post ID.
 	 * @param WP_Post $post    Post object.
 	 */
-	public static function on_before_delete_post(int $post_id, $serialize_post, $acting_user_id)
+	public static function on_before_delete_post(int $post_id, $serialize_post, $acting_user_id, ?string $client_ip = null)
 	{
 
-		//unserialize post object
-		$post = unserialize($serialize_post);
+		// Parse post payload safely.
+		$post = null;
+		if (is_string($serialize_post) && Serialization::try_unserialize($serialize_post, $post)) {
+			// ok
+		} elseif (is_object($serialize_post)) {
+			$post = $serialize_post;
+		} elseif (is_array($serialize_post)) {
+			$post = (object) $serialize_post;
+		} else {
+			Debug::warning('logify-debug: on_before_delete_post - unable to parse $serialize_post; type=' . gettype($serialize_post));
+		}
 		// Ignore revisions.
 		if (wp_is_post_revision($post)) {
 			return;
 		}
 
-		Debug::info('on_before_delete_post', $post_id);
+		//Debug::info('on_before_delete_post', $post_id);
 
 		// Get the event type.
 		$event_type = self::get_delete_event_type($post->post_type);
 
 		// Create the event.
-		$event = Event::create($event_type, $post, null, null, $acting_user_id);
+	$event = Event::create($event_type, $post, null, null, $acting_user_id, false, $client_ip);
 
 		// If the event could not be created, we aren't tracking this user.
 		if (!$event) {
@@ -456,10 +526,19 @@ class Post_Tracker
 	 * @param int     $post_id The ID of the post that was deleted.
 	 * @param WP_Post $post    The post object that was deleted.
 	 */
-	public static function on_delete_post(int $post_id, $serialize_post )
+	public static function on_delete_post(int $post_id, $serialize_post, ?int $acting_user_id = null, ?string $client_ip = null)
 	{
-		//unserialize post object
-		$post = unserialize($serialize_post);
+		// Parse post payload safely.
+		$post = null;
+		if (is_string($serialize_post) && Serialization::try_unserialize($serialize_post, $post)) {
+			// ok
+		} elseif (is_object($serialize_post)) {
+			$post = $serialize_post;
+		} elseif (is_array($serialize_post)) {
+			$post = (object) $serialize_post;
+		} else {
+			Debug::warning('logify-debug: on_delete_post - unable to parse $serialize_post; type=' . gettype($serialize_post));
+		}
 		// Ensure this is not a revision.
 		if (wp_is_post_revision($post)) {
 			return;
@@ -470,7 +549,7 @@ class Post_Tracker
 			return;
 		}
 
-		Debug::info('on_delete_post', $post_id);
+		//Debug::info('on_delete_post', $post_id);
 
 		// Get the event type.
 		$event_type = self::get_delete_event_type($post->post_type);
@@ -510,7 +589,7 @@ class Post_Tracker
 			return;
 		}
 
-		Debug::info('on_added_term_relationship'); // , $post_id, $tt_id, $taxonomy );
+		//Debug::info('on_added_term_relationship'); // , $post_id, $tt_id, $taxonomy );
 
 		// Remember the newly attached term.
 		$term_id = Term_Utility::get_term_id_from_term_taxonomy_id($tt_id);
@@ -531,7 +610,7 @@ class Post_Tracker
 			return;
 		}
 
-		Debug::info('on_deleted_term_relationships'); // , $post_id, $tt_ids, $taxonomy );
+		//Debug::info('on_deleted_term_relationships'); // , $post_id, $tt_ids, $taxonomy );
 
 		// Remember the removed terms.
 		foreach ($tt_ids as $tt_id) {
@@ -548,11 +627,30 @@ class Post_Tracker
 	 * @param bool     $update      Whether this is an existing post being updated.
 	 * @param ?WP_Post $post_before Null for new posts, the WP_Post object prior to the update for updated posts.
 	 */
-	public static function on_wp_after_insert_post(int $post_id, $serialize_post, bool $update, $serialize_post_before, $acting_user_id)
+	public static function on_wp_after_insert_post(int $post_id, $serialize_post, bool $update, $serialize_post_before, $acting_user_id, ?string $client_ip = null)
 	{
-		//unserialize post object
-		$post = unserialize($serialize_post);
-		$post_before = unserialize($serialize_post_before);
+		// Parse post payloads safely.
+		$post = null;
+		if (is_string($serialize_post) && Serialization::try_unserialize($serialize_post, $post)) {
+			// ok
+		} elseif (is_object($serialize_post)) {
+			$post = $serialize_post;
+		} elseif (is_array($serialize_post)) {
+			$post = (object) $serialize_post;
+		} else {
+			Debug::warning('logify-debug: on_wp_after_insert_post - unable to parse $serialize_post; type=' . gettype($serialize_post));
+		}
+
+		$post_before = null;
+		if (is_string($serialize_post_before) && Serialization::try_unserialize($serialize_post_before, $post_before)) {
+			// ok
+		} elseif (is_object($serialize_post_before)) {
+			$post_before = $serialize_post_before;
+		} elseif (is_array($serialize_post_before)) {
+			$post_before = (object) $serialize_post_before;
+		} else {
+			Debug::warning('logify-debug: on_wp_after_insert_post - unable to parse $serialize_post_before; type=' . gettype($serialize_post_before));
+		}
 
 		//Current User id
 		$acting_user = $acting_user_id ?? null;
@@ -562,7 +660,7 @@ class Post_Tracker
 			return;
 		}
 
-		Debug::info('on_wp_after_insert_post');
+		//Debug::info('on_wp_after_insert_post');
 
 		// Log the addition or removal of any taxonomy terms.
 		if (self::$terms) {
@@ -581,8 +679,8 @@ class Post_Tracker
 					$event_type = "$post_type $taxonomy_name Updated";
 				}
 
-				// Create the event.
-				$event = Event::create($event_type, $post, null,null, $acting_user);
+				// Create the event. Prefer client_ip when available.
+				$event = Event::create($event_type, $post, null, null, $acting_user, false, $client_ip);
 
 				// If the event could not be created, we aren't tracking this user.
 				if (!$event) {
@@ -642,7 +740,7 @@ class Post_Tracker
 	 * @param int|WP_Post $post            The post the event is about.
 	 * @return ?Event The event, or null if it couldn't be created.
 	 */
-	private static function get_update_post_event(string $event_type_verb, int|WP_Post $post, $acting_user_id): ?Event
+	private static function get_update_post_event(string $event_type_verb, int|WP_Post $post, $acting_user_id, ?string $client_ip = null): ?Event
 	{
 		// Create the event if not done already.
 		if (!self::$update_post_event) {
@@ -659,7 +757,7 @@ class Post_Tracker
 			$event_type = "$post_type $event_type_verb";
 
 			// Create the event.
-			self::$update_post_event = Event::create($event_type, $post, null, null, $acting_user_id);
+			self::$update_post_event = Event::create($event_type, $post, null, null, $acting_user_id, false, $client_ip);
 		}
 
 		return self::$update_post_event;

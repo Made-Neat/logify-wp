@@ -50,9 +50,8 @@ class Debug {
 	 * @param mixed ...$args The variable(s) to dump.
 	 */
 	public static function log( int $severity, ...$args ) {
-		// Check if debug logging is enabled.
-		if ( ! ( defined( 'WP_DEBUG' ) && WP_DEBUG && defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) ) {
-			// error_log( 'Logging disabled' );
+		// Only log when WP_DEBUG is enabled and error_log exists.
+		if ( ! self::can_log() ) {
 			return;
 		}
 
@@ -110,8 +109,19 @@ class Debug {
 	 * @param string $sql The SQL query to dump.
 	 */
 	public static function sql( string $sql ) {
+		if ( ! self::can_log() ) {
+			return;
+		}
+
 		global $wpdb;
 		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 		error_log( 'SQL: ' . $wpdb->remove_placeholder_escape( $sql ) );
+	}
+
+	/**
+	 * Determine whether logging should occur.
+	 */
+	private static function can_log(): bool {
+		return defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' );
 	}
 }

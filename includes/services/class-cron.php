@@ -45,13 +45,16 @@ class Cron {
 		};
 		$days = absint( ceil( $days ) );
 
-		// Delete old records.
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$timestamp    = current_time( 'timestamp' );
+		$cutoff_time  = $timestamp - (int) $days * DAY_IN_SECONDS;
+		$cutoff_date  = gmdate( 'Y-m-d H:i:s', $cutoff_time );
+
+		// Now delete rows older than the cutoff.
 		$wpdb->query(
 			$wpdb->prepare(
-				'DELETE FROM %i WHERE when_happened < NOW() - INTERVAL %d DAY',
+				'DELETE FROM %i WHERE when_happened < %s',
 				Event_Repository::get_table_name(),
-				$days
+				$cutoff_date
 			)
 		);
 	}

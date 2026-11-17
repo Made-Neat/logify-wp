@@ -14,6 +14,126 @@ namespace Logify_WP;
  */
 class Option_Utility extends Object_Utility {
 
+	/**
+	 * Noisy options that should never be tracked.
+	 *
+	 * @var string[]
+	 */
+	private const NOISY_OPTIONS = array(
+		'cron',
+		'rewrite_rules',
+		'wp_user_roles',
+		'__uagb_asset_version',
+		'bsf_last_update_check',
+	);
+
+	/**
+	 * Prefixes for options that are either transient or internal noise.
+	 *
+	 * @var string[]
+	 */
+	private const NOISY_PREFIXES = array(
+		'_transient_',
+		'_site_transient_',
+	);
+
+	/**
+	 * Prefixes for options already handled elsewhere (widgets, theme mods, etc.).
+	 *
+	 * @var string[]
+	 */
+	private const NON_SETTING_PREFIXES = array(
+		'widget_',
+		'theme_mods_',
+		'sidebars_widgets',
+	);
+
+	/**
+	 * Options that must always be tracked, even if heuristics would normally skip them.
+	 *
+	 * @var string[]
+	 */
+	private const FORCE_TRACK_OPTIONS = array(
+		'blogname',
+		'blogdescription',
+		'siteurl',
+		'home',
+		'admin_email',
+		'users_can_register',
+		'default_role',
+		'timezone_string',
+		'date_format',
+		'time_format',
+		'start_of_week',
+		'WPLANG',
+		'default_category',
+		'default_post_format',
+		'show_on_front',
+		'page_on_front',
+		'page_for_posts',
+		'blog_public',
+		'posts_per_page',
+		'posts_per_rss',
+		'rss_use_excerpt',
+		'default_comment_status',
+		'default_ping_status',
+		'default_pingback_flag',
+		'require_name_email',
+		'comment_registration',
+		'close_comments_for_old_posts',
+		'close_comments_days_old',
+		'thread_comments',
+		'thread_comments_depth',
+		'page_comments',
+		'comments_per_page',
+		'default_comments_page',
+		'comment_order',
+		'comments_notify',
+		'moderation_notify',
+		'comment_moderation',
+		'spam_clearly_marked',
+		'blacklist_keys',
+		'thumbnail_size_w',
+		'thumbnail_size_h',
+		'thumbnail_crop',
+		'medium_size_w',
+		'medium_size_h',
+		'large_size_w',
+		'large_size_h',
+		'permalink_structure',
+		'category_base',
+		'tag_base',
+		'wp_page_for_privacy_policy',
+	);
+
+	/**
+	 * Common substrings that usually indicate a bundled plugin settings array.
+	 *
+	 * @var string[]
+	 */
+	private const PLUGIN_SETTING_HINTS = array(
+		'settings',
+		'options',
+		'config',
+		'woocommerce',
+		'wc_',
+		'edd',
+		'gravityforms',
+		'gf_',
+		'wpforms',
+		'ninja_forms',
+		'give_',
+		'learndash',
+		'elementor',
+		'wpseo',
+		'yoast',
+		'rank_math',
+		'acf',
+		'bricks',
+		'brx_',
+		'logify',
+	);
+
 	// =============================================================================================
 	// Implementations of base class methods.
 
@@ -137,11 +257,87 @@ class Option_Utility extends Object_Utility {
 			return true;
 		}
 
-		// Check if the option is one of the additional settings on the Permalinks and Privacy
-		// settings pages that (for some reason) aren't included in $allowed_options.
-		$additional_settings = array( 'permalink_structure', 'category_base', 'tag_base', 'wp_page_for_privacy_policy' );
-		if ( in_array( $option_name, $additional_settings, true ) ) {
+		$wp_core_settings = self::FORCE_TRACK_OPTIONS;
+
+		if ( in_array( $option_name, $wp_core_settings, true ) ) {
 			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Determine whether an option update should be logged.
+	 *
+	 * This centralizes noisy-option filtering and adds heuristics so plugin settings that do not
+	 * register with the Settings API can still be tracked.
+	 *
+	 * @param string $option_name Option key.
+	 * @param mixed  $old_value   Previous value.
+	 * @param mixed  $new_value   New value.
+	 * @return bool True when the option should be logged.
+	 */
+	public static function should_track_option( string $option_name, mixed $old_value = null, mixed $new_value = null ): bool {
+		$option_name = (string) $option_name;
+
+		if ( in_array( $option_name, self::NOISY_OPTIONS, true ) ) {
+			return false;
+		}
+
+		foreach ( self::NOISY_PREFIXES as $prefix ) {
+			if ( str_starts_with( $option_name, $prefix ) ) {
+				return false;
+			}
+		}
+
+		// Respect the existing Settings API whitelist first.
+		$track = in_array( $option_name, self::FORCE_TRACK_OPTIONS, true );
+
+		if ( ! $track ) {
+			$track = self::is_setting( $option_name );
+		}
+
+		if ( ! $track ) {
+			$track = self::looks_like_plugin_setting( $option_name, $old_value, $new_value );
+		}
+
+		/**
+		 * Filter to control whether an option update should be logged.
+		 *
+		 * @param bool   $track       Default decision.
+		 * @param string $option_name Option key.
+		 * @param mixed  $old_value   Previous value.
+		 * @param mixed  $new_value   New value.
+		 */
+		return (bool) apply_filters( 'logify_wp_should_track_option', $track, $option_name, $old_value, $new_value );
+	}
+
+	/**
+	 * Lightweight heuristic to detect plugin settings stored in custom option keys.
+	 *
+	 * @param string $option_name Option name.
+	 * @param mixed  $old_value   Previous value.
+	 * @param mixed  $new_value   New value.
+	 * @return bool
+	 */
+	private static function looks_like_plugin_setting( string $option_name, mixed $old_value, mixed $new_value ): bool {
+		$lower = strtolower( $option_name );
+
+		foreach ( self::NON_SETTING_PREFIXES as $prefix ) {
+			if ( str_starts_with( $lower, $prefix ) ) {
+				return false;
+			}
+		}
+
+		// Many plugins store their entire settings page in a serialized array.
+		if ( is_array( $old_value ) || is_array( $new_value ) ) {
+			return true;
+		}
+
+		foreach ( self::PLUGIN_SETTING_HINTS as $hint ) {
+			if ( str_contains( $lower, $hint ) ) {
+				return true;
+			}
 		}
 
 		return false;

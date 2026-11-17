@@ -76,10 +76,10 @@ class Plugin_Settings {
 	 *
 	 * @var string
 	 */
-	private const DEFAULT_PHP_ERROR_TYPES = array('Fatal Error');
+	private const DEFAULT_PHP_ERROR_TYPES = array();
 	private const DEFAULT_COMMENT_TRACKING_STATE = false;
 
-	private const DEFAULT_CAPTURE_START_TIME = 1;
+	private const DEFAULT_CAPTURE_START_TIME = 0;
 
 	/**
 	 * Get the names of all current roles.
@@ -232,11 +232,11 @@ class Plugin_Settings {
 			'logify_wp_settings_group',
 			'logify_wp_capture_start_time',
 			array(
-				'type'	=> 'integer',
-				'sanitize_callback'=>'absint',
-				'default' => self::DEFAULT_CAPTURE_START_TIME,
+				'type'              => 'integer',
+				'sanitize_callback' => 'absint',
+				'default'           => self::DEFAULT_CAPTURE_START_TIME,
 			)
-			);
+		);
 	}
 
 	/**
@@ -411,6 +411,24 @@ class Plugin_Settings {
 
 	public static function get_php_error_types(): array {
 		return get_option( 'logify_wp_php_error_types', self::DEFAULT_PHP_ERROR_TYPES );
+	}
+
+	/**
+	 * Check if PHP error tracking is enabled by the admin.
+	 */
+	public static function is_php_error_tracking_enabled(): bool {
+		$types = self::get_php_error_types();
+		if ( empty( $types ) ) {
+			return false;
+		}
+
+		foreach ( $types as $type ) {
+			if ( is_string( $type ) && $type !== '' ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 	public static function get_comment_tracking_state(): bool {
 		return get_option( 'logify_wp_comment_tracking', self::DEFAULT_COMMENT_TRACKING_STATE );

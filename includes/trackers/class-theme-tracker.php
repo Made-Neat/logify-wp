@@ -23,7 +23,7 @@ class Theme_Tracker
 	 * Set up hooks for the events we want to log.
 	 */
 	public static function init()
-	{
+	{ 
 		// Load the themes pages.
 		add_action('load-themes.php', [__NAMESPACE__ . '\Async_Tracker', 'async_load_themes'], 10, 0);
 		add_action('middle_load-themes.php', array(__CLASS__, 'on_load_themes_page'), 10, 0);
@@ -33,11 +33,12 @@ class Theme_Tracker
 
 		// Theme install and update.
 		add_action('upgrader_process_complete', [__NAMESPACE__ . '\Async_Tracker', 'async_upgrader_process_complete_theme'], 10, 2);
-		add_action('middle_upgrader_process_complete_theme', array(__CLASS__, 'on_upgrader_process_complete'), 10, 2);
+		add_action('middle_upgrader_process_complete_theme', array(__CLASS__, 'on_upgrader_process_complete'), 10, 4);
 
 		// Theme switch.
 		add_action('switch_theme', [__NAMESPACE__ . '\Async_Tracker', 'async_switch_theme'], 10, 3);
-		add_action('middle_switch_theme', array(__CLASS__, 'on_switch_theme'), 10, 3);
+		// Accept client IP as 4th arg
+		add_action('middle_switch_theme', array(__CLASS__, 'on_switch_theme'), 10, 4);
 
 		// Theme delete.
 		add_action('delete_theme', [__NAMESPACE__ . '\Async_Tracker', 'async_delete_theme'], 10, 2);
@@ -93,13 +94,13 @@ class Theme_Tracker
 	 *     }
 	 * }
 	 */
-	public static function on_upgrader_process_complete($upgrader_data, array $hook_extra)
+	public static function on_upgrader_process_complete($upgrader_data, array $hook_extra, $acting_user_id, ?string $client_ip = null)
 	{
 		//Convert to Object type
 		$upgrader = (object) $upgrader_data;
 		// Check this is a theme upgrader.
 
-		if ($hook_extra['type'] !== 'theme') {
+		if (($hook_extra['type'] ?? null) !== 'theme') {
 			return;
 		}
 
@@ -108,6 +109,14 @@ class Theme_Tracker
 		// Most likely, there is already a version of this theme present, and they attempting an
 		// upgrade, downgrade, or re-install, and WordPress is asking the user what the want to do.
 		if (!is_array($upgrader->result)) {
+			return;
+		}
+
+		// Handle bulk updates where WordPress supplies every stylesheet in the payload.
+		if (!empty($hook_extra['themes']) && is_array($hook_extra['themes'])) {
+			foreach ($hook_extra['themes'] as $stylesheet) {
+				self::log_theme_from_stylesheet($stylesheet, $acting_user_id, $client_ip);
+			}
 			return;
 		}
 
@@ -123,7 +132,6 @@ class Theme_Tracker
 			$theme = Theme_Utility::load_by_name($name);
 			if ($theme) {
 				$theme_loaded = true;
-				$stylesheet = $theme->get_stylesheet();
 			}
 		}
 
@@ -132,9 +140,6 @@ class Theme_Tracker
 			// Check if 'theme' key exists in $hook_extra.
 			if (!empty($hook_extra['theme'])) {
 				$stylesheet = sanitize_text_field($hook_extra['theme']);
-			} elseif (!empty($hook_extra['themes']) && is_array($hook_extra['themes'])) {
-				// If multiple themes are involved, take the first one.
-				$stylesheet = sanitize_text_field($hook_extra['themes'][0]);
 			}
 
 			if ($stylesheet) {
@@ -147,46 +152,77 @@ class Theme_Tracker
 		}
 
 		// If we couldn't load the theme, we can't log the event.
-		if (!$theme_loaded) {
-			Debug::warning("Couldn't load the theme.");
+		if (!$theme_loaded || !$theme) {
+			Debug::warning("Couldn't load the theme." );
 			return;
 		}
 
-		$props = array();
+		self::log_theme_event($theme, $acting_user_id, $client_ip);
+	}
 
-		// Get the old version, if it's there.
-		$versions = get_option('logify_wp_theme_versions', array());
+	/**
+	 * Log a theme event directly from its stylesheet slug.
+	 */
+	private static function log_theme_from_stylesheet(string $stylesheet, ?int $acting_user_id, ?string $client_ip = null): void
+	{
+		$stylesheet = sanitize_text_field($stylesheet);
+		if ($stylesheet === '') {
+			return;
+		}
+
+		$theme = Theme_Utility::load($stylesheet);
+		if (!$theme) {
+			Debug::warning("Couldn't load the theme {$stylesheet}.");
+			return;
+		}
+
+		self::log_theme_event($theme, $acting_user_id, $client_ip);
+	}
+
+	/**
+	 * Centralized logging for a resolved theme object.
+	 */
+	private static function log_theme_event(WP_Theme $theme, ?int $acting_user_id, ?string $client_ip = null): void
+	{
+		$props      = array();
+		$stylesheet = $theme->get_stylesheet();
+		$versions   = get_option('logify_wp_theme_versions', array());
 		$old_version = $versions[$stylesheet] ?? null;
+		$new_version = $theme->get('Version');
 
 		if ($old_version) {
-			// The user is overwriting the existing theme with a new version.
-
-			// Get the new version.
-			$new_version = $upgrader->new_theme_data['Version'];
-
-			// Determine if we're upgrading, downgrading, or re-installing.
-			$old_version_numeric = Strings::version_to_float($old_version);
-			$new_version_numeric = Strings::version_to_float($new_version);
-
-			if ($old_version_numeric < $new_version_numeric) {
-				$event_type = 'Theme Upgraded';
-			} elseif ($old_version_numeric > $new_version_numeric) {
-				$event_type = 'Theme Downgraded';
-			} else {
-				$event_type = 'Theme Re-installed';
-			}
-
-			// Put the old and new versions in the props, if they are different.
-			if ($old_version !== $new_version) {
+			$event_type = self::classify_version_change($old_version, $new_version);
+			if ($new_version && $old_version !== $new_version) {
 				Property::update_array($props, 'version', null, $old_version, $new_version);
 			}
 		} else {
-			// The user is installing a new theme.
 			$event_type = 'Theme Installed';
 		}
 
-		// Log the event.
-		Logger::log_event($event_type, $theme, null, $props);
+		Logger::log_event($event_type, $theme, null, $props, $acting_user_id, false, $client_ip);
+	}
+
+	/**
+	 * Determine which verb best fits the version change.
+	 */
+	private static function classify_version_change(?string $old_version, ?string $new_version): string
+	{
+		if (!$old_version || !$new_version) {
+			return 'Theme Upgraded';
+		}
+
+		$old_numeric = Strings::version_to_float($old_version);
+		$new_numeric = Strings::version_to_float($new_version);
+
+		if ($old_numeric < $new_numeric) {
+			return 'Theme Upgraded';
+		}
+
+		if ($old_numeric > $new_numeric) {
+			return 'Theme Downgraded';
+		}
+
+		return 'Theme Re-installed';
 	}
 
 	/**
@@ -196,17 +232,44 @@ class Theme_Tracker
 	 * @param WP_Theme $new_theme WP_Theme instance of the new theme.
 	 * @param WP_Theme $old_theme WP_Theme instance of the old theme.
 	 */
-	public static function on_switch_theme(string $new_name, $serialize_new_theme, $serialize_old_theme)
+	public static function on_switch_theme(string $new_name, $new_payload, $old_payload, ?string $client_ip = null)
 	{
+		// Normalize payloads (arrays with stylesheet/name) into WP_Theme when possible
+		$new_theme = null;
+		$old_theme = null;
 
-		//Unserialize the theme objects
-		$new_theme = unserialize($serialize_new_theme);
-		$old_theme = unserialize($serialize_old_theme);
+		if (is_array($new_payload) && !empty($new_payload['stylesheet'])) {
+			$new_theme = Theme_Utility::load(sanitize_text_field($new_payload['stylesheet']));
+		} elseif ($new_payload instanceof WP_Theme) {
+			$new_theme = $new_payload;
+		}
 
+		if (is_array($old_payload) && !empty($old_payload['stylesheet'])) {
+			$old_theme = Theme_Utility::load(sanitize_text_field($old_payload['stylesheet']));
+		} elseif ($old_payload instanceof WP_Theme) {
+			$old_theme = $old_payload;
+		}
+
+		// Build old theme meta reference safely
 		$metas = array();
-		$old_theme_ref = Object_Reference::new_from_wp_object($old_theme);
+		if ($old_theme instanceof WP_Theme) {
+			$old_theme_ref = Object_Reference::new_from_wp_object($old_theme);
+		} elseif (is_array($old_payload)) {
+			$old_theme_ref = new Object_Reference('theme', $old_payload['stylesheet'] ?? null, $old_payload['name'] ?? null);
+		} else {
+			$old_theme_ref = new Object_Reference('theme', null, 'Previous Theme');
+		}
 		Eventmeta::update_array($metas, 'old_theme', $old_theme_ref);
-		Logger::log_event('Theme Switched', $new_theme, $metas);
+
+		// Log event with best available object ref for the new theme
+		if ($new_theme instanceof WP_Theme) {
+			Logger::log_event('Theme Switched', $new_theme, $metas, null, null, false, $client_ip);
+		} elseif (is_array($new_payload)) {
+			$new_ref = new Object_Reference('theme', $new_payload['stylesheet'] ?? null, $new_payload['name'] ?? $new_name);
+			Logger::log_event('Theme Switched', $new_ref, $metas, null, null, false, $client_ip);
+		} else {
+			Logger::log_event('Theme Switched', 'theme', $metas, null, null, false, $client_ip);
+		}
 	}
 
 	/**
@@ -214,12 +277,12 @@ class Theme_Tracker
 	 *
 	 * @param string $stylesheet Stylesheet of the theme to delete.
 	 */
-	public static function on_delete_theme(string $stylesheet)
+	public static function on_delete_theme(string $stylesheet, ?string $client_ip = null)
 	{
 		// Load the theme before it gets deleted.
 		$theme = Theme_Utility::load($stylesheet);
 
 		// Log the theme deletion event.
-		Logger::log_event('Theme Deleted', $theme);
+		Logger::log_event('Theme Deleted', $theme, null, null, null, false, $client_ip);
 	}
 }
