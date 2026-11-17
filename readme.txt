@@ -5,7 +5,7 @@ Tags: activity log, audit log, security, user tracking, event log
 Requires at least: 6.2
 Tested up to: 6.8
 Requires PHP: 8.0
-Stable tag: 1.3.1
+Stable tag: 1.3.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 Website: https://logifywp.com/
@@ -117,6 +117,9 @@ You can report security bugs through the Patchstack Vulnerability Disclosure Pro
 * object size limit issue
 * Gravity form tracking
 * Bricks builder tracking
+
+= 1.3.2 =
+* minor fixes
 
 == Links ==
 
