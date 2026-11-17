@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use DateTime;
 use InvalidArgumentException;
 use RuntimeException;
@@ -325,7 +330,8 @@ class Event_Repository extends Repository {
             object_key varchar(50) NULL,
             object_name varchar(100) NULL,
             PRIMARY KEY  (event_id),
-            KEY user_id (user_id)
+            KEY user_id (user_id),
+            KEY when_happened (when_happened)
         ) $charset_collate;";
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -677,7 +683,7 @@ class Event_Repository extends Repository {
 		);
 
 		// Put 'none' at the start.
-		if ( in_array( 'none', $roles ) ) {
+		if ( in_array( 'none', $roles, true ) ) {
 			$roles = array_diff( $roles, array( 'none' ) );
 			array_unshift( $roles, 'none' );
 		}

@@ -1,6 +1,11 @@
 <?php
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Utility helpers for Gravity Forms notifications.
  */

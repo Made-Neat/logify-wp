@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use DateTime;
 use UnexpectedValueException;
 use WP_Query;
@@ -223,6 +228,10 @@ class User_Utility extends Object_Utility {
 
 		// Add the base properties.
 		foreach ( $user->data as $key => $value ) {
+			if ( Property_Repository::is_sensitive_key( (string) $key ) ) {
+				Property::update_array( $props, $key, $wpdb->users, Sensitive_Data::REDACTED );
+				continue;
+			}
 			// Process meta values into correct types.
 			$value = Types::process_database_value( $key, $value );
 
@@ -239,6 +248,10 @@ class User_Utility extends Object_Utility {
 		// Add the meta properties.
 		$usermeta = get_user_meta( $user->ID );
 		foreach ( $usermeta as $key => $value ) {
+			if ( Property_Repository::is_sensitive_key( (string) $key ) ) {
+				Property::update_array( $props, $key, $wpdb->usermeta, Sensitive_Data::REDACTED );
+				continue;
+			}
 			// Check for single.
 			self::reduce_to_single( $value );
 
@@ -253,54 +266,424 @@ class User_Utility extends Object_Utility {
 	}
 
 	/**
+	 * Inspect the IP attribution of the CURRENT admin HTTP request, without
+	 * trusting or acting on headers sent by unverified clients.
+	 *
+	 * This is an administrator diagnostic. It does not alter event attribution
+	 * and must never be used to infer trust from a header's mere presence.
+	 *
+	 * @return array<string, string|bool> Safe, bounded values for admin display.
+	 */
+	public static function get_ip_diagnostics(): array {
+		$read_ip = static function ( string $key ): string {
+			$value = $_SERVER[ $key ] ?? '';
+			if ( ! is_string( $value ) ) {
+				return '';
+			}
+			$value = trim( $value );
+			return filter_var( $value, FILTER_VALIDATE_IP ) ? $value : '';
+		};
+
+		$remote = $read_ip( 'REMOTE_ADDR' );
+		$server = $read_ip( 'SERVER_ADDR' );
+		$cf = $read_ip( 'HTTP_CF_CONNECTING_IP' );
+		$cf_ipv6 = $read_ip( 'HTTP_CF_CONNECTING_IPV6' );
+		$x_real_ip = $read_ip( 'HTTP_X_REAL_IP' );
+		$xff = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+		if ( ! is_string( $xff ) ) {
+			$xff = '';
+		}
+		// XFF is untrusted text; show only a short, printable excerpt.
+		$xff = (string) preg_replace( '/[\x00-\x1F\x7F]/', '', substr( $xff, 0, 180 ) );
+
+		$verified_cf = '' !== $remote && self::is_cloudflare_proxy_ip( $remote );
+		$custom_trusted = '' !== $remote && self::trust_proxy_headers() && self::is_trusted_proxy_ip( $remote );
+		if ( $verified_cf ) {
+			$trust = 'cloudflare';
+		} elseif ( $custom_trusted ) {
+			$trust = 'configured_proxy';
+		} else {
+			$trust = 'unverified';
+		}
+
+		return array(
+			'remote_addr'         => $remote,
+			'server_addr'         => $server,
+			'cf_connecting_ip'    => $cf,
+			'cf_connecting_ipv6'  => $cf_ipv6,
+			'x_real_ip'          => $x_real_ip,
+			'x_forwarded_for'     => trim( $xff ),
+			'logify_ip'           => self::get_ip() ?? '',
+			'reported_ip'         => self::capture_ip_context()['reported'] ?? '',
+			'trust'               => $trust,
+			'remote_is_server'    => '' !== $remote && '' !== $server && $remote === $server,
+		);
+	}
+
+	/**
 	 * Retrieves the IP address of the user.
 	 *
 	 * @return ?string The IP address of the user or null if not found.
 	 */
 	public static function get_ip(): ?string {
-		// Prefer common real-IP headers used by CDNs and proxies.
-		$candidates = array();
+		$remote = isset( $_SERVER['REMOTE_ADDR'] ) ? trim( (string) $_SERVER['REMOTE_ADDR'] ) : '';
+		if ( ! filter_var( $remote, FILTER_VALIDATE_IP ) ) {
+			return null;
+		}
 
-		if ( ! empty( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ) {
-			$candidates[] = sanitize_text_field( wp_unslash( $_SERVER['HTTP_CF_CONNECTING_IP'] ) );
-		}
-		if ( ! empty( $_SERVER['HTTP_X_REAL_IP'] ) ) {
-			$candidates[] = sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_REAL_IP'] ) );
-		}
-		if ( ! empty( $_SERVER['HTTP_CLIENT_IP'] ) ) {
-			$candidates[] = sanitize_text_field( wp_unslash( $_SERVER['HTTP_CLIENT_IP'] ) );
-		}
-		if ( ! empty( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
-			// May be a comma-separated list; take each in order.
-			$http_x_forwarded_for = sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_FOR'] ) );
-			foreach ( explode( ',', $http_x_forwarded_for ) as $ip_part ) {
-				$candidates[] = trim( $ip_part );
+		// Zero-config Cloudflare support is safe only when the immediate peer
+		// belongs to Cloudflare's published ingress CIDRs. The header itself is NOT
+		// evidence of Cloudflare and is ignored on every other connection.
+		if ( self::is_cloudflare_proxy_ip( $remote ) ) {
+			foreach ( array( 'HTTP_CF_CONNECTING_IPV6', 'HTTP_CF_CONNECTING_IP' ) as $header ) {
+				$visitor = isset( $_SERVER[ $header ] ) ? trim( (string) $_SERVER[ $header ] ) : '';
+				if ( filter_var( $visitor, FILTER_VALIDATE_IP ) ) {
+					return $visitor;
+				}
 			}
 		}
-		if ( ! empty( $_SERVER['REMOTE_ADDR'] ) ) {
-			$candidates[] = sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) );
+
+		// Custom proxies still require explicit trust. In particular, do NOT
+		// implicitly trust localhost/server IPs or a request-supplied XFF header.
+		if ( ! self::trust_proxy_headers() || ! self::is_trusted_proxy_ip( $remote ) ) {
+			return $remote;
 		}
 
-		foreach ( $candidates as $candidate ) {
-			$candidate = trim( (string) $candidate );
-			if ( ! $candidate ) {
+		foreach ( self::get_trusted_proxy_headers() as $header ) {
+			if ( ! is_string( $header ) || ! preg_match( '/^HTTP_[A-Z0-9_]+$/', $header ) || empty( $_SERVER[ $header ] ) ) {
 				continue;
 			}
-			// Validate IP and prefer the first public IP we find.
-			if ( filter_var( $candidate, FILTER_VALIDATE_IP ) && self::is_public_ip( $candidate ) ) {
-				return $candidate;
+			$value = (string) $_SERVER[ $header ];
+			if ( 'HTTP_X_FORWARDED_FOR' === $header ) {
+				// Read from the trusted peer backwards. A leftmost entry can be forged.
+				$chain = array_map( 'trim', explode( ',', $value ) );
+				$hop = $remote;
+				foreach ( array_reverse( $chain ) as $candidate ) {
+					if ( ! self::is_trusted_proxy_ip( $hop ) || ! filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
+						break;
+					}
+					$hop = $candidate;
+				}
+				return $hop;
 			}
-		}
-
-		// If we didn't find a public IP, fall back to the first valid IP found (including private).
-		foreach ( $candidates as $candidate ) {
-			$candidate = trim( (string) $candidate );
+			$candidate = trim( $value );
 			if ( filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
 				return $candidate;
 			}
 		}
+		return $remote;
+	}
 
-		return null;
+	/**
+	 * Capture both the audited connection address and a possible forwarded visitor IP.
+	 *
+	 * An address in a request header is NOT proof of who connected. For unverified
+	 * proxies we retain a separately labeled reported value, never use it as the
+	 * authoritative user_ip column, and never use it for access-control decisions.
+	 * Capturing here (before Action Scheduler) keeps the original request's evidence.
+	 *
+	 * @return array{ip:?string,peer:?string,reported:?string,source:string,trust:string}
+	 */
+	public static function capture_ip_context(): array {
+		$remote = self::valid_ip_header( 'REMOTE_ADDR' );
+		$server = self::valid_ip_header( 'SERVER_ADDR' );
+		$selected = self::get_ip();
+		$trust = 'connection';
+		$source = 'REMOTE_ADDR';
+		$reported = null;
+
+		if ( null === $remote ) {
+			return array( 'ip' => null, 'peer' => null, 'reported' => null, 'source' => 'system', 'trust' => 'unknown' );
+		}
+
+		if ( self::is_cloudflare_proxy_ip( $remote ) && $selected !== $remote ) {
+			$source = self::valid_ip_header( 'HTTP_CF_CONNECTING_IPV6' ) === $selected
+				? 'CF-Connecting-IPv6'
+				: 'CF-Connecting-IP';
+			$trust = 'verified';
+		} elseif ( self::trust_proxy_headers() && self::is_trusted_proxy_ip( $remote ) && $selected !== $remote ) {
+			$source = 'configured proxy';
+			$trust = 'verified';
+		} else {
+			// No automatic trust for arbitrary public peers or forged forwarded headers.
+			// A private peer or PHP's own SERVER_ADDR strongly suggests an intermediate
+			// hosting proxy, but the header itself remains unverified.
+			$likely_local_proxy = ( null !== $server && $remote === $server ) || ! self::is_public_ip( $remote );
+			if ( $likely_local_proxy ) {
+				foreach ( array( 'HTTP_CF_CONNECTING_IPV6', 'HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP' ) as $header ) {
+					$candidate = self::valid_ip_header( $header );
+					if ( null !== $candidate && self::is_public_ip( $candidate ) && $candidate !== $remote && $candidate !== $server ) {
+						$reported = $candidate;
+						$source = array( 'HTTP_CF_CONNECTING_IPV6' => 'CF-Connecting-IPv6', 'HTTP_CF_CONNECTING_IP' => 'CF-Connecting-IP', 'HTTP_X_REAL_IP' => 'X-Real-IP' )[ $header ];
+						break;
+					}
+				}
+				if ( null === $reported ) {
+					// XFF can be attacker-controlled: report the nearest public hop,
+					// NOT the first/leftmost element in an arbitrary chain.
+					$xff = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+					if ( is_string( $xff ) && strlen( $xff ) <= 512 ) {
+						$hops = array_map( 'trim', explode( ',', $xff ) );
+						if ( count( $hops ) <= 10 ) {
+							foreach ( array_reverse( $hops ) as $hop ) {
+								if ( filter_var( $hop, FILTER_VALIDATE_IP ) && self::is_public_ip( $hop ) && $hop !== $remote && $hop !== $server ) {
+									$reported = $hop;
+									$source = 'X-Forwarded-For';
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		return array( 'ip' => $selected, 'peer' => $remote, 'reported' => $reported, 'source' => $source, 'trust' => $trust );
+	}
+
+	/** Read a single, valid IP; never use an arbitrary comma-list as a single IP. */
+	private static function valid_ip_header( string $name ): ?string {
+		$value = $_SERVER[ $name ] ?? null;
+		if ( ! is_string( $value ) || strlen( $value ) > 45 ) {
+			return null;
+		}
+		$value = trim( $value );
+		return filter_var( $value, FILTER_VALIDATE_IP ) ? $value : null;
+	}
+
+	/**
+	 * Pack bounded, validated attribution into the existing client-IP argument.
+	 * This avoids changing every existing Action Scheduler handler's signature.
+	 * The token is an internal queue format, never a user-supplied trust assertion.
+	 */
+	public static function get_ip_context_token(): ?string {
+		$context = self::capture_ip_context();
+		if ( null === $context['ip'] ) {
+			return 'logify-system';
+		}
+		// The common direct-connection case needs no extra metadata. Preserve
+		// the original scalar job format to keep queues small on busy sites.
+		if ( 'REMOTE_ADDR' === $context['source'] && null === $context['reported'] ) {
+			return $context['ip'];
+		}
+		$json = json_encode( $context, JSON_UNESCAPED_SLASHES );
+		return is_string( $json ) ? 'logify-ip-v1:' . rtrim( strtr( base64_encode( $json ), '+/', '-_' ), '=' ) : $context['ip'];
+	}
+
+	/**
+	 * Decode a legacy scalar IP or a captured context token from our own queue.
+	 * Corrupt/unexpected input fails closed; no header is trusted during decode.
+	 */
+	public static function decode_ip_context( ?string $value ): array {
+		$fallback = array( 'ip' => null, 'peer' => null, 'reported' => null, 'source' => 'legacy', 'trust' => 'unknown' );
+		if ( 'logify-system' === $value ) {
+			$fallback['source'] = 'system';
+			return $fallback;
+		}
+		if ( null === $value ) {
+			return $fallback;
+		}
+		if ( filter_var( $value, FILTER_VALIDATE_IP ) ) {
+			$fallback['ip'] = $value;
+			return $fallback;
+		}
+		$prefix = 'logify-ip-v1:';
+		if ( ! str_starts_with( $value, $prefix ) || strlen( $value ) > 768 ) {
+			return $fallback;
+		}
+		$payload = substr( $value, strlen( $prefix ) );
+		if ( ! preg_match( '/^[A-Za-z0-9_-]{10,700}$/D', $payload ) ) {
+			return $fallback;
+		}
+		$json = base64_decode( strtr( $payload, '-_', '+/' ), true );
+		$data = is_string( $json ) ? json_decode( $json, true ) : null;
+		if ( ! is_array( $data ) ) {
+			return $fallback;
+		}
+		foreach ( array( 'ip', 'peer', 'reported' ) as $key ) {
+			if ( ! array_key_exists( $key, $data ) || ( null !== $data[ $key ] && ( ! is_string( $data[ $key ] ) || ! filter_var( $data[ $key ], FILTER_VALIDATE_IP ) ) ) ) {
+				return $fallback;
+			}
+		}
+		if ( ! in_array( $data['trust'] ?? null, array( 'verified', 'connection', 'unknown' ), true ) ||
+			! in_array( $data['source'] ?? null, array( 'REMOTE_ADDR', 'CF-Connecting-IP', 'configured proxy', 'CF-Connecting-IPv6', 'X-Real-IP', 'X-Forwarded-For', 'WordPress comment record', 'system' ), true ) ) {
+			return $fallback;
+		}
+		return array_intersect_key( $data, $fallback ) + $fallback;
+	}
+
+	/**
+	 * Preserve WordPress' own stored comment-author IP as an unverified reported
+	 * address when it differs from the captured connection IP. On a proxy, the
+	 * comment-author value can be a better lead, but it must never be promoted
+	 * to a verified network identity based solely on its presence.
+	 */
+	public static function get_comment_ip_context_token(\WP_Comment $comment ): string {
+		$context = self::capture_ip_context();
+		$author_ip = isset( $comment->comment_author_IP ) ? trim( (string) $comment->comment_author_IP ) : '';
+		if ( filter_var( $author_ip, FILTER_VALIDATE_IP ) && $author_ip !== $context['ip'] && null === $context['reported'] ) {
+			$context['reported'] = $author_ip;
+			$context['source'] = 'WordPress comment record';
+			$json = json_encode( $context, JSON_UNESCAPED_SLASHES );
+			if ( is_string( $json ) ) {
+				return 'logify-ip-v1:' . rtrim( strtr( base64_encode( $json ), '+/', '-_' ), '=' );
+			}
+		}
+		return self::get_ip_context_token();
+	}
+
+	/** Retrieve compact IP provenance metadata, or an empty array for legacy events. */
+	public static function get_event_ip_attribution( Event $event ): array {
+		$value = $event->get_meta_val( 'logify_ip_attribution' );
+		return is_array( $value ) ? $value : array();
+	}
+
+	/** True when event metadata contains a validated but unverified visitor IP. */
+	public static function get_reported_event_ip( Event $event ): ?string {
+		$value = self::get_event_ip_attribution( $event )['reported'] ?? null;
+		return is_string( $value ) && filter_var( $value, FILTER_VALIDATE_IP ) ? $value : null;
+	}
+
+	/** Present a likely visitor address without misrepresenting it as verified. */
+	public static function format_event_ip( Event $event ): string {
+		$reported = self::get_reported_event_ip( $event );
+		if ( $reported ) {
+			return Urls::get_ip_link( $reported ) . ' <span class="logify-wp-ip-unverified" title="' . esc_attr__( 'This IP was reported by an unverified proxy and may be spoofed.', 'logify-wp' ) . '">(' . esc_html__( 'reported, unverified', 'logify-wp' ) . ')</span>';
+		}
+		return $event->user_ip ? Urls::get_ip_link( $event->user_ip ) : esc_html__( 'Unknown', 'logify-wp' );
+	}
+
+	/**
+	 * Is this request coming directly from a verified Cloudflare edge?
+	 *
+	 * CIDRs from Cloudflare's published IPv4/IPv6 ingress lists (Nov 2026):
+	 * https://www.cloudflare.com/ips-v4/ and https://www.cloudflare.com/ips-v6/
+	 * They can be updated as part of normal releases; no remote request is made
+	 * while handling a visitor request.
+	 */
+	public static function is_cloudflare_proxy_ip( string $ip ): bool {
+		if ( ! filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+			return false;
+		}
+		$networks = array(
+			'173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22',
+			'103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18',
+			'190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22',
+			'198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+			'104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+			'2400:cb00::/32', '2606:4700::/32', '2803:f800::/32',
+			'2405:b500::/32', '2405:8100::/32', '2a06:98c0::/29',
+			'2c0f:f248::/32',
+		);
+		return self::ip_in_networks( $ip, $networks );
+	}
+
+	/** Match one valid IPv4/IPv6 address against IP or CIDR strings. */
+	private static function ip_in_networks( string $ip, array $networks ): bool {
+		$packed = inet_pton( $ip );
+		if ( false === $packed ) {
+			return false;
+		}
+		foreach ( $networks as $network ) {
+			if ( ! is_string( $network ) ) {
+				continue;
+			}
+			$parts = explode( '/', trim( $network ), 2 );
+			$base = inet_pton( $parts[0] );
+			if ( false === $base || strlen( $base ) !== strlen( $packed ) ) {
+				continue;
+			}
+			$bits = isset( $parts[1] )
+				? filter_var( $parts[1], FILTER_VALIDATE_INT, array( 'options' => array( 'min_range' => 0, 'max_range' => strlen( $base ) * 8 ) ) )
+				: strlen( $base ) * 8;
+			if ( false === $bits ) {
+				continue;
+			}
+			$whole = intdiv( $bits, 8 );
+			$remaining = $bits % 8;
+			if ( substr( $packed, 0, $whole ) !== substr( $base, 0, $whole ) ) {
+				continue;
+			}
+			if ( $remaining === 0 ||
+				( ( ord( $packed[ $whole ] ) ^ ord( $base[ $whole ] ) ) & ( 0xff << ( 8 - $remaining ) ) ) === 0 ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Verify the address of the connecting proxy against explicit IPs/CIDRs.
+	 * Define LOGIFY_WP_TRUSTED_PROXY_IPS in wp-config.php, or use the filter.
+	 * No proxies are trusted automatically, including localhost.
+	 */
+	public static function is_trusted_proxy_ip( string $ip ): bool {
+		$default = defined( 'LOGIFY_WP_TRUSTED_PROXY_IPS' ) ? LOGIFY_WP_TRUSTED_PROXY_IPS : array();
+		$trusted = apply_filters( 'logify_wp_trusted_proxy_ips', $default );
+		return is_array( $trusted ) && self::ip_in_networks( $ip, $trusted );
+	}
+
+	/**
+	 * Whether this site is behind a trusted proxy or CDN.
+	 *
+	 * Off by default. Turn it on with the "Trust proxy headers" setting, or in wp-config.php:
+	 *
+	 *     define( 'LOGIFY_WP_TRUST_PROXY', true );
+	 *
+	 * @return bool
+	 */
+	public static function trust_proxy_headers(): bool {
+		if ( defined( 'LOGIFY_WP_TRUST_PROXY' ) ) {
+			return (bool) LOGIFY_WP_TRUST_PROXY;
+		}
+
+		return Plugin_Settings::get_trust_proxy_headers();
+	}
+
+	/**
+	 * The request headers to read the visitor's IP address from, in order of preference.
+	 *
+	 * Only consulted when trust_proxy_headers() is true. Define LOGIFY_WP_TRUST_PROXY as an
+	 * array of $_SERVER keys, or use the filter, to narrow this to the single header your proxy
+	 * actually sets - that is the safest configuration.
+	 *
+	 * @return string[]
+	 */
+	public static function get_trusted_proxy_headers(): array {
+		// XFF is processed right-to-left from an authenticated proxy peer.
+		// Single-address headers such as CF-Connecting-IP must be explicitly
+		// selected by the site owner and overwritten by their trusted proxy.
+		$default = array( 'HTTP_X_FORWARDED_FOR' );
+
+		if ( defined( 'LOGIFY_WP_TRUST_PROXY' ) && is_array( LOGIFY_WP_TRUST_PROXY ) ) {
+			$default = LOGIFY_WP_TRUST_PROXY;
+		}
+
+		/**
+		 * Filters the request headers Logify WP will read the visitor IP address from.
+		 *
+		 * @param string[] $headers The $_SERVER keys to check, in order of preference.
+		 */
+		$headers = apply_filters( 'logify_wp_trusted_proxy_headers', $default );
+
+		return is_array( $headers ) ? array_values( array_filter( $headers, 'is_string' ) ) : $default;
+	}
+
+	/**
+	 * Whether the current request carries proxy IP headers.
+	 *
+	 * Used to warn an administrator that visitor IPs may be recorded as the proxy's address
+	 * because header trust is switched off.
+	 *
+	 * @return bool
+	 */
+	public static function request_has_proxy_headers(): bool {
+		foreach ( array( 'HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP', 'HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR' ) as $header ) {
+			if ( ! empty( $_SERVER[ $header ] ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -315,32 +698,53 @@ class User_Utility extends Object_Utility {
 	}
 
 	/**
-	 * Retrieves the location of the user based on their IP address.
+	 * Describe a user agent string in terms of what made the request.
 	 *
-	 * @param string $ip The IP address of the user.
-	 * @return ?string The location of the user or null if not found.
+	 * Not every event comes from a browser. Anything the plugin records during a cron run, an
+	 * Action Scheduler task or a loopback request carries WordPress's own user agent -
+	 * "WordPress/6.8; https://example.com" - which reads as though the site itself were the
+	 * visitor, and is confusing next to an event about a file. WP-CLI is the same. Those are
+	 * now named for what they are, with the raw header kept alongside.
+	 *
+	 * @param ?string $user_agent The raw User-Agent header.
+	 * @return string A human-readable description, or the raw header if it is an ordinary one.
+	 */
+	public static function describe_user_agent( ?string $user_agent ): string {
+		$user_agent = trim( (string) $user_agent );
+
+		if ( $user_agent === '' ) {
+			return __( 'Unknown', 'logify-wp' );
+		}
+
+		// WordPress's internal HTTP client: cron, Action Scheduler, loopback requests.
+		if ( preg_match( '#^WordPress/[\d.]+#i', $user_agent ) ) {
+			return sprintf(
+				/* translators: %s: the raw user agent string. */
+				__( 'WordPress background request (%s)', 'logify-wp' ),
+				$user_agent
+			);
+		}
+
+		if ( stripos( $user_agent, 'WP CLI' ) === 0 || stripos( $user_agent, 'WP-CLI' ) === 0 ) {
+			return sprintf(
+				/* translators: %s: the raw user agent string. */
+				__( 'WP-CLI command line (%s)', 'logify-wp' ),
+				$user_agent
+			);
+		}
+
+		return $user_agent;
+	}
+
+	/**
+	 * No external IP location lookups are performed in 1.5.0.
+	 *
+	 * @param string $ip Source IP address (retained in the audit record).
+	 * @return null
 	 */
 	public static function get_location( string $ip ): ?string {
-		// Use a geolocation API to get location info from the IP address.
-		$response = wp_remote_get( "http://ip-api.com/json/$ip" );
-		if ( is_wp_error( $response ) ) {
-			return null;
-		}
-
-		$body   = wp_remote_retrieve_body( $response );
-		$result = json_decode( $body, true );
-
-		// Construct the location string.
-		if ( ! empty( $result['status'] ) && $result['status'] === 'success' ) {
-			$location = array(
-				$result['city'],
-				$result['regionName'],
-				$result['country'],
-			);
-			return implode( ', ', array_filter( $location ) );
-		}
-
-		// Return null if the location could not be determined.
+		// Location lookup was retired in 1.5.0. We continue logging source IPs
+		// but do not send them to any external geolocation service.
 		return null;
 	}
 
@@ -445,7 +849,7 @@ class User_Utility extends Object_Utility {
 			$user_email = $user;
 		}
 
-		return "<a href='mailto:$user_email'>$user_email</a>";
+		return '<a href="' . esc_url( 'mailto:' . $user_email ) . '">' . esc_html( $user_email ) . '</a>';
 	}
 
 	/**

@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_User;
 
 /**
@@ -126,4 +131,18 @@ class Access_Control {
 
 		return self::can_access_log_page( $user_data['object'] ) && user_can( $user_data['object'], 'manage_options' );
 	}
+	/** Export is more sensitive than read access; no export for read-only viewers. */
+	public static function can_export_logs( null|int|WP_User $user = null ): bool {
+		$data = User_Utility::get_user_data( $user );
+		return ! empty( $data['id'] ) && self::can_access_log_page( $data['object'] )
+			&& ( user_can( $data['object'], 'manage_options' ) || user_can( $data['object'], 'logify_wp_export_logs' ) );
+	}
+
+	/** Notes must not be writable just because a user can read the audit log. */
+	public static function can_manage_notes( null|int|WP_User $user = null ): bool {
+		$data = User_Utility::get_user_data( $user );
+		return ! empty( $data['id'] ) && self::can_access_log_page( $data['object'] )
+			&& ( user_can( $data['object'], 'edit_posts' ) || user_can( $data['object'], 'logify_wp_manage_notes' ) );
+	}
+
 }

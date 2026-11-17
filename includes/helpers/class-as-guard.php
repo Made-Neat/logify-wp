@@ -1,6 +1,11 @@
 <?php
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Guard for Action Scheduler payloads.
  *
@@ -94,7 +99,7 @@ final class AS_Guard {
                 return strlen( $json );
             }
         } catch ( \Throwable $e ) {
-            // Fall through to estimation.
+            Debug::verbose( 'AS_Guard: JSON size measurement failed, estimating instead', $e->getMessage() );
         }
 
         // Rough estimation for failed encoding.

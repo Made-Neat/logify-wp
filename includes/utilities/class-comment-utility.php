@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_Comment;
 
 /**
@@ -99,7 +104,7 @@ class Comment_Utility extends Object_Utility {
 		}
 
 		// Date.
-		$date = Datetimes::create_datetime( $comment->comment_date );
+		$date = DateTimes::create_datetime( $comment->comment_date );
 		Property::update_array( $props, 'comment_date', $wpdb->comments, $date );
 
 		// Status.
@@ -191,7 +196,7 @@ class Comment_Utility extends Object_Utility {
 		$props = array();
 		foreach ( $comment_data as $key => $value ) {
 			// Skip a couple we don't need.
-			if ( in_array( $key, array( 'populated_children', 'post_fields' ) ) ) {
+			if ( in_array( $key, array( 'populated_children', 'post_fields' ), true ) ) {
 				continue;
 			}
 

@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Miscellaneous static methods for working with strings.
  */
@@ -225,7 +230,7 @@ class Strings {
 	public static function pluralize( string $noun ): string {
 		// Nouns that don't change in plural form.
 		$no_change = array( 'sheep', 'fish', 'deer', 'species', 'aircraft', 'moose' );
-		if ( in_array( $noun, $no_change ) ) {
+		if ( in_array( $noun, $no_change, true ) ) {
 			return $noun;
 		}
 
@@ -270,12 +275,12 @@ class Strings {
 		}
 
 		// Nouns ending with 'y' preceded by a consonant.
-		if ( str_ends_with( $noun, 'y' ) && ! in_array( substr( $noun, -2, 1 ), array( 'a', 'e', 'i', 'o', 'u' ) ) ) {
+		if ( str_ends_with( $noun, 'y' ) && ! in_array( substr( $noun, -2, 1 ), array( 'a', 'e', 'i', 'o', 'u' ), true ) ) {
 			return substr( $noun, 0, -1 ) . 'ies';
 		}
 
 		// Nouns ending with 'o' preceded by a consonant.
-		if ( str_ends_with( $noun, 'o' ) && ! in_array( substr( $noun, -2, 1 ), array( 'a', 'e', 'i', 'o', 'u' ) ) ) {
+		if ( str_ends_with( $noun, 'o' ) && ! in_array( substr( $noun, -2, 1 ), array( 'a', 'e', 'i', 'o', 'u' ), true ) ) {
 			return $noun . 'es';
 		}
 

@@ -1,6 +1,11 @@
 <?php
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Tracks Gravity Forms form creations, updates and deletions.
  */
@@ -63,7 +68,7 @@ final class GravityForms_Tracker {
         add_action( 'gform_post_status_change', array( __CLASS__, 'on_entry_status_changed' ), 10, 4 );
 
         // Notification save/delete.
-        add_action( 'gform_notification_saved', array( __CLASS__, 'on_notification_saved' ), 10, 2 );
+        add_action( 'gform_post_update_form_meta', array( __CLASS__, 'on_form_meta_updated' ), 10, 3 );
         add_action( 'gform_pre_notification_deleted', array( __CLASS__, 'on_notification_deleted' ), 10, 2 );
     }
 
@@ -74,7 +79,7 @@ final class GravityForms_Tracker {
      */
     private static function get_context(): array {
         $acting_user_id = get_current_user_id() ?: null;
-        return [ $acting_user_id, User_Utility::get_ip() ];
+        return [ $acting_user_id, User_Utility::get_ip_context_token() ];
     }
 
     /**
@@ -189,6 +194,20 @@ final class GravityForms_Tracker {
             return;
         }
 
+        // A plugin update/cron refresh can update many Gravity Forms options.
+        // Only label a settings change as user-initiated when it was submitted
+        // through an actual Gravity Forms settings page.
+        $request_method = strtoupper( (string) ( $_SERVER['REQUEST_METHOD'] ?? '' ) );
+        $page = isset( $_REQUEST['page'] ) && is_scalar( $_REQUEST['page'] )
+            ? sanitize_key( (string) wp_unslash( $_REQUEST['page'] ) ) : '';
+        $option_page = isset( $_POST['option_page'] ) && is_scalar( $_POST['option_page'] )
+            ? sanitize_key( (string) wp_unslash( $_POST['option_page'] ) ) : '';
+        if ( $request_method !== 'POST' || ! is_user_logged_in()
+            || ! ( preg_match( '/^(gf_|gform|gravityform)/i', $page )
+                || preg_match( '/^(gf_|gform|gravityform)/i', $option_page ) ) ) {
+            return;
+        }
+
         // Build a tiny properties summary; avoid serializing large structures.
         $properties = array(
             new Property( 'option', null, $option ),
@@ -196,8 +215,9 @@ final class GravityForms_Tracker {
         );
 
         if ( is_scalar( $value ) ) {
-            $properties[] = new Property( 'value_summary', null, mb_substr( (string) $value, 0, 200 ) );
-            $properties[] = new Property( 'value_length', null, (string) mb_strlen( (string) $value ) );
+            // Scalar GF options include license keys and API credentials. Never
+            // include their literal contents, even after trimming to 200 chars.
+            $properties[] = new Property( 'value_summary', null, Sensitive_Data::REDACTED );
         } elseif ( is_array( $value ) ) {
             $properties[] = new Property( 'value_items', null, (string) count( $value ) );
         } else {
@@ -269,11 +289,32 @@ final class GravityForms_Tracker {
         if ( $event ) { $event->save(); }
     }
 
+    /**
+     * Gravity Forms 2.5+ saves notifications through the form-meta API.
+     * Audit the affected form and component only, never email recipients,
+     * message bodies, routing rules or other sensitive notification payloads.
+     */
+    public static function on_form_meta_updated( $form_meta, $form_id, $meta_name ): void {
+        if ( $meta_name !== 'notifications' || (int) $form_id < 1 ) {
+            return;
+        }
+        $object_ref = new Object_Reference( 'gravityform', (int) $form_id, 'Form ' . (int) $form_id );
+        $props = array( new Property( 'component', null, 'notifications' ) );
+        $event = self::create_event( 'Gravity Form Notifications Updated', $object_ref, null, $props );
+        if ( $event ) {
+            $event->save();
+        }
+    }
+
     public static function on_notification_saved( $notification, $form ): void {
         if ( is_object( $notification ) ) { $notification = (array) $notification; }
-        $id   = isset( $notification['id'] ) ? (string) $notification['id'] : 'unknown';
-        $name = isset( $notification['name'] ) ? (string) $notification['name'] : ( 'Notification ' . $id );
-        $type = isset( $notification['event'] ) ? (string) $notification['event'] : '';
+
+        // Gravity Forms stores some of these as arrays - a notification's "event" can be a
+        // list of events. Casting an array to a string raises "Array to string conversion"
+        // and produces the useless string "Array", so values are flattened instead.
+        $id   = self::scalar_value( $notification['id'] ?? null, 'unknown' );
+        $name = self::scalar_value( $notification['name'] ?? null, 'Notification ' . $id );
+        $type = self::scalar_value( $notification['event'] ?? null, '' );
         $object_ref = new Object_Reference( 'gravitynotification', $id, $name );
         $props = array( new Property( 'type', null, $type ) );
         $event = self::create_event( 'Gravity Notification Saved', $object_ref, null, $props );
@@ -284,5 +325,31 @@ final class GravityForms_Tracker {
         $object_ref = new Object_Reference( 'gravitynotification', (string) $notification_id, 'Notification ' . (string) $notification_id );
         $event = self::create_event( 'Gravity Notification Deleted', $object_ref );
         if ( $event ) { $event->save(); }
+    }
+
+    /**
+     * Reduce a Gravity Forms value to a string without warning.
+     *
+     * Several Gravity Forms fields hold either a scalar or an array depending on how the form
+     * was configured. Casting an array to a string raises a PHP warning and yields "Array".
+     *
+     * @param mixed  $value   The raw value.
+     * @param string $default Returned when the value is empty.
+     * @return string
+     */
+    private static function scalar_value( $value, string $default = '' ): string {
+        if ( is_array( $value ) ) {
+            $flat = array_filter( $value, 'is_scalar' );
+
+            return $flat ? implode( ', ', array_map( 'strval', $flat ) ) : $default;
+        }
+
+        if ( is_scalar( $value ) ) {
+            $value = (string) $value;
+
+            return $value === '' ? $default : $value;
+        }
+
+        return $default;
     }
 }

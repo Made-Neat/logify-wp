@@ -1,4 +1,9 @@
 <?php
+
+// Block direct web access to this bundled dependency file.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
 /**
  * Deprecated API functions for scheduling actions
  *

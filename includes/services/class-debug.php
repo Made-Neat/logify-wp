@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use DateTime;
 
 /**
@@ -104,6 +109,25 @@ class Debug {
 	}
 
 	/**
+	 * Dump one or more variables into the error log, but only when verbose logging is on.
+	 *
+	 * Use this for the high-frequency tracing that used to be written on every post meta update
+	 * whenever WP_DEBUG was on. It is off unless the site sets
+	 * define( 'LOGIFY_WP_DEBUG', true ), so a site running WP_DEBUG for its own development is
+	 * no longer flooded with Logify WP output, and the arguments are only converted to strings
+	 * if something is actually going to be written.
+	 *
+	 * @param mixed ...$args The variable(s) to dump.
+	 */
+	public static function verbose( ...$args ) {
+		if ( ! defined( 'LOGIFY_WP_DEBUG' ) || ! LOGIFY_WP_DEBUG ) {
+			return;
+		}
+
+		self::log( self::SEVERITY_INFO, ...$args );
+	}
+
+	/**
 	 * Dump an SQL query into the error log.
 	 *
 	 * @param string $sql The SQL query to dump.
@@ -122,6 +146,10 @@ class Debug {
 	 * Determine whether logging should occur.
 	 */
 	private static function can_log(): bool {
-		return defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' );
+		if ( ! function_exists( 'error_log' ) ) {
+			return false;
+		}
+
+		return defined( 'LOGIFY_WP_DEBUG' ) && (bool) LOGIFY_WP_DEBUG;
 	}
 }

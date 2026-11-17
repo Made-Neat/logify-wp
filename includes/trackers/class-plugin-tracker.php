@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_Upgrader;
 
 /**
@@ -29,22 +34,22 @@ class Plugin_Tracker
 	public static function init()
 	{
 		// Plugin install and update.
-		add_action('upgrader_process_complete', [__NAMESPACE__ . '\Async_Tracker', 'async_upgrader_process_complete_plugin'], 10, 2);
+		add_action('upgrader_process_complete', Async_Tracker::safe_callback( 'async_upgrader_process_complete_plugin', false ), 10, 2);
 		add_action('middle_upgrader_process_complete_plugin', array(__CLASS__, 'on_upgrader_process_complete'), 10, 4);
 		// add_action( 'upgrader_process_complete', array( __CLASS__, 'on_upgrader_process_complete' ), 10, 2 );
 
 		// Plugin activation and deactivation.
-		add_action('activate_plugin', [__NAMESPACE__ . '\Async_Tracker', 'async_activate_plugin'], 10, 2);
+		add_action('activate_plugin', Async_Tracker::safe_callback( 'async_activate_plugin', false ), 10, 2);
 		add_action('middle_activate_plugin', array(__CLASS__, 'on_activate_plugin'), 10, 4);
 
-		add_action('deactivate_plugin', [__NAMESPACE__ . '\Async_Tracker', 'async_deactivate_plugin'], 10, 2);
+		add_action('deactivate_plugin', Async_Tracker::safe_callback( 'async_deactivate_plugin', false ), 10, 2);
 		add_action('middle_deactivate_plugin', array(__CLASS__, 'on_deactivate_plugin'), 10, 4);
 
 		// Plugin deletion and uninstall.
-		add_action('delete_plugin', [__NAMESPACE__ . '\Async_Tracker', 'async_delete_plugin'], 10, 1);
+		add_action('delete_plugin', Async_Tracker::safe_callback( 'async_delete_plugin', false ), 10, 1);
 		add_action('middle_delete_plugin', array(__CLASS__, 'on_delete_plugin'), 10, 3);
 
-		add_action('pre_uninstall_plugin', [__NAMESPACE__ . '\Async_Tracker', 'async_pre_uninstall_plugin'], 10, 2);
+		add_action('pre_uninstall_plugin', Async_Tracker::safe_callback( 'async_pre_uninstall_plugin', false ), 10, 2);
 		add_action('middle_pre_uninstall_plugin', array(__CLASS__, 'on_pre_uninstall_plugin'), 10, 4);
 
 		// Enabling and disabling auto-updates - only on plugins page.
@@ -64,7 +69,7 @@ class Plugin_Tracker
 		}
 
 		self::$auto_update_hook_registered = true;
-		add_action('update_option', [__NAMESPACE__ . '\Async_Tracker', 'async_update_option_plugin'], 10, 3);
+		add_action('update_option', Async_Tracker::safe_callback( 'async_update_option_plugin', false ), 10, 3);
 	}
 
 	/**

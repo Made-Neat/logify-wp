@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_Post;
 
 /**
@@ -44,48 +49,49 @@ class Post_Tracker
 	public static function init()
 	{
 		// Track post creation and update.
-		add_action('save_post', [__NAMESPACE__ . '\Async_Tracker', 'async_save_post'], 10, 3);
+		add_action('save_post', Async_Tracker::safe_callback( 'async_save_post', false ), 10, 3);
 		// on_save_post now accepts an optional client IP as the 5th argument
 		add_action('middle_save_post', array(__CLASS__, 'on_save_post'), 10, 5);
 
-		add_action('pre_post_update', [__NAMESPACE__ . '\Async_Tracker', 'async_pre_post_update'], 10, 2);
+		add_action('pre_post_update', Async_Tracker::safe_callback( 'async_pre_post_update', false ), 10, 2);
 		// on_pre_post_update now accepts optional client IP as 4th arg
 		add_action('middle_pre_post_update', array(__CLASS__, 'on_pre_post_update'), 10, 4);
 
-		add_action('post_updated', [__NAMESPACE__ . '\Async_Tracker', 'async_post_updated'], 10, 3);
+		add_action('post_updated', Async_Tracker::safe_callback( 'async_post_updated', false ), 10, 3);
 		// on_post_updated now accepts optional client IP as 5th arg
 		add_action('middle_post_updated', array(__CLASS__, 'on_post_updated'), 10, 5);
 
-		add_action('update_post_meta', [__NAMESPACE__ . '\Async_Tracker', 'async_update_post_meta'], 10, 4);
+		add_action('update_post_meta', Async_Tracker::safe_callback( 'async_update_post_meta', false ), 10, 4);
 		// on_update_post_meta now accepts optional client IP as 6th arg
 		add_action('middle_update_post_meta', array(__CLASS__, 'on_update_post_meta'), 10, 6);
 
 		// Post status change.
-		add_action('transition_post_status', [__NAMESPACE__ . '\Async_Tracker', 'async_transition_post_status'], 10, 3);
+		add_action('transition_post_status', Async_Tracker::safe_callback( 'async_transition_post_status', false ), 10, 3);
 		// on_transition_post_status now accepts optional client IP as 5th arg
 		add_action('middle_transition_post_status', array(__CLASS__, 'on_transition_post_status'), 10, 5);
 
 		// Track post deletion.
-		add_action('before_delete_post', [__NAMESPACE__ . '\Async_Tracker', 'async_before_delete_post'], 10, 2);
+		add_action('before_delete_post', Async_Tracker::safe_callback( 'async_before_delete_post', false ), 10, 2);
 		// on_before_delete_post now accepts optional client IP as 4th arg
 		add_action('middle_before_delete_post', array(__CLASS__, 'on_before_delete_post'), 10, 4);
 
-		add_action('delete_post', [__NAMESPACE__ . '\Async_Tracker', 'async_delete_post'], 10, 2);
+		add_action('delete_post', Async_Tracker::safe_callback( 'async_delete_post', false ), 10, 2);
 		add_action('middle_delete_post', array(__CLASS__, 'on_delete_post'), 10, 4);
 
 		// Track linking and unlinking of terms and posts.
-		add_action('added_term_relationship', [__NAMESPACE__ . '\Async_Tracker', 'async_added_term_relationship'], 10, 3);
-		add_action('middle_added_term_relationship', array(__CLASS__, 'on_added_term_relationship'), 10, 3);
+		add_action('added_term_relationship', Async_Tracker::safe_callback( 'async_added_term_relationship', false ), 10, 3);
+		add_action('middle_added_term_relationship', array(__CLASS__, 'on_added_term_relationship'), 10, 5);
 
-		add_action('wp_after_insert_post', [__NAMESPACE__ . '\Async_Tracker', 'async_wp_after_insert_post'], 10, 4);
+		add_action('wp_after_insert_post', Async_Tracker::safe_callback( 'async_wp_after_insert_post', false ), 10, 4);
 		// on_wp_after_insert_post now accepts optional client IP as 6th arg
 		add_action('middle_wp_after_insert_post', array(__CLASS__, 'on_wp_after_insert_post'), 10, 6);
 
-		add_action('deleted_term_relationships', [__NAMESPACE__ . '\Async_Tracker', 'async_deleted_term_relationships'], 10, 3);
-		add_action('middle_deleted_term_relationships', array(__CLASS__, 'on_deleted_term_relationships'), 10, 3);
+		add_action('deleted_term_relationships', Async_Tracker::safe_callback( 'async_deleted_term_relationships', false ), 10, 3);
+		add_action('middle_deleted_term_relationships', array(__CLASS__, 'on_deleted_term_relationships'), 10, 5);
 
 		// Shutdown.
-		add_action('shutdown', [__NAMESPACE__ . '\Async_Tracker', 'async_shutdown_post'], 10, 0);
+		add_action('shutdown', array(__CLASS__, 'on_shutdown'), 9, 0);
+		add_action('action_scheduler_after_execute', array(__CLASS__, 'on_shutdown'), 9, 0);
 		add_action('middle_shutdown_post', array(__CLASS__, 'on_shutdown'), 10, 0);
 	}
 
@@ -110,16 +116,7 @@ class Post_Tracker
 	{
 
 		// Parse post payload into an object safely.
-		$post = null;
-		if (is_string($serialize_post) && Serialization::try_unserialize($serialize_post, $post)) {
-			// ok
-		} elseif (is_object($serialize_post)) {
-			$post = $serialize_post;
-		} elseif (is_array($serialize_post)) {
-			$post = (object) $serialize_post;
-		} else {
-			Debug::warning('logify-debug: on_save_post - unable to parse $serialize_post; type=' . gettype($serialize_post));
-		}
+		$post = Serialization::to_object( $serialize_post, 'on_save_post' );
 
 		// Ignore updates. We track post updates by tracking the creation of revisions, which
 		// enables us to link to the compare revisions page.
@@ -149,6 +146,14 @@ class Post_Tracker
 			// Load the parent object.
 			$post_id = $post->post_parent;
 			$post = Post_Utility::load($post_id);
+		}
+
+		// The parent may have been deleted between the revision being written and this running,
+		// and a revision with no parent has post_parent 0, which loads nothing. Reading
+		// post_status off null was the single most common warning this plugin produced.
+		if ( ! $post instanceof \WP_Post ) {
+			Debug::verbose( 'Post_Tracker::on_save_post: no post to work with', $post_id );
+			return;
 		}
 
 		// Get the event type verb.
@@ -282,15 +287,11 @@ class Post_Tracker
 			// Add more as needed...
 		);
 		if (!in_array($meta_key, $user_facing_meta, true)) {
-			if (defined('WP_DEBUG') && WP_DEBUG && function_exists('error_log')) {
-				error_log('[Logify WP] Post_Tracker::on_update_post_meta skipping non-user meta: ' . $meta_key . ' for post_id: ' . $post_id);
-			}
+			Debug::verbose( 'Post_Tracker::on_update_post_meta skipping non-user meta', $meta_key, 'post_id', $post_id );
 			return;
 		}
 
-		if (defined('WP_DEBUG') && WP_DEBUG && function_exists('error_log')) {
-			error_log('[Logify WP] Post_Tracker::on_update_post_meta logging meta: ' . $meta_key . ' for post_id: ' . $post_id . ' | value: ' . var_export($meta_value, true));
-		}
+		Debug::verbose( 'Post_Tracker::on_update_post_meta logging meta', $meta_key, 'post_id', $post_id, 'value', $meta_value );
 
 		// Get the current value.
 		$current_value = get_post_meta($post_id, $meta_key, true);
@@ -329,16 +330,7 @@ class Post_Tracker
 		global $wpdb;
 		
 		// Parse post payload safely.
-		$post = null;
-		if (is_string($serialize_post) && Serialization::try_unserialize($serialize_post, $post)) {
-			// ok
-		} elseif (is_object($serialize_post)) {
-			$post = $serialize_post;
-		} elseif (is_array($serialize_post)) {
-			$post = (object) $serialize_post;
-		} else {
-			Debug::warning('logify-debug: on_transition_post_status - unable to parse $serialize_post; type=' . gettype($serialize_post));
-		}
+		$post = Serialization::to_object( $serialize_post, 'on_transition_post_status' );
 		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 
 		// Ignore navigation menu items.
@@ -412,16 +404,7 @@ class Post_Tracker
 	{
 
 		// Parse post payload safely.
-		$post = null;
-		if (is_string($serialize_post) && Serialization::try_unserialize($serialize_post, $post)) {
-			// ok
-		} elseif (is_object($serialize_post)) {
-			$post = $serialize_post;
-		} elseif (is_array($serialize_post)) {
-			$post = (object) $serialize_post;
-		} else {
-			Debug::warning('logify-debug: on_before_delete_post - unable to parse $serialize_post; type=' . gettype($serialize_post));
-		}
+		$post = Serialization::to_object( $serialize_post, 'on_before_delete_post' );
 		// Ignore revisions.
 		if (wp_is_post_revision($post)) {
 			return;
@@ -449,7 +432,14 @@ class Post_Tracker
 			if ($post->post_type === 'nav_menu_item' && $taxonomy === 'nav_menu') {
 				$event->set_meta('navigation_menu', $term_refs[0]);
 			} else {
-				$event->set_meta(get_taxonomy($taxonomy)->labels->name, $term_refs);
+				// get_taxonomy() returns false for a taxonomy that is no longer registered -
+				// a plugin deactivated since the term was attached, for instance.
+				$taxonomy_obj  = get_taxonomy($taxonomy);
+				$taxonomy_name = ( $taxonomy_obj && ! empty( $taxonomy_obj->labels->name ) )
+					? $taxonomy_obj->labels->name
+					: Strings::key_to_label( $taxonomy, true );
+
+				$event->set_meta($taxonomy_name, $term_refs);
 			}
 		}
 
@@ -529,16 +519,7 @@ class Post_Tracker
 	public static function on_delete_post(int $post_id, $serialize_post, ?int $acting_user_id = null, ?string $client_ip = null)
 	{
 		// Parse post payload safely.
-		$post = null;
-		if (is_string($serialize_post) && Serialization::try_unserialize($serialize_post, $post)) {
-			// ok
-		} elseif (is_object($serialize_post)) {
-			$post = $serialize_post;
-		} elseif (is_array($serialize_post)) {
-			$post = (object) $serialize_post;
-		} else {
-			Debug::warning('logify-debug: on_delete_post - unable to parse $serialize_post; type=' . gettype($serialize_post));
-		}
+		$post = Serialization::to_object( $serialize_post, 'on_delete_post' );
 		// Ensure this is not a revision.
 		if (wp_is_post_revision($post)) {
 			return;
@@ -582,7 +563,7 @@ class Post_Tracker
 	 * @param int    $tt_id    Term taxonomy ID.
 	 * @param string $taxonomy Taxonomy slug.
 	 */
-	public static function on_added_term_relationship(int $post_id, int $tt_id, string $taxonomy)
+	public static function on_added_term_relationship(int $post_id, int $tt_id, string $taxonomy, int $acting_user_id = 0, ?string $client_ip = null)
 	{
 		// Ignore revisions.
 		if (wp_is_post_revision($post_id)) {
@@ -603,7 +584,7 @@ class Post_Tracker
 	 * @param array  $tt_ids   An array of term taxonomy IDs.
 	 * @param string $taxonomy The taxonomy slug.
 	 */
-	public static function on_deleted_term_relationships(int $post_id, array $tt_ids, string $taxonomy)
+	public static function on_deleted_term_relationships(int $post_id, array $tt_ids, string $taxonomy, int $acting_user_id = 0, ?string $client_ip = null)
 	{
 		// Ignore revisions.
 		if (wp_is_post_revision($post_id)) {
@@ -630,26 +611,15 @@ class Post_Tracker
 	public static function on_wp_after_insert_post(int $post_id, $serialize_post, bool $update, $serialize_post_before, $acting_user_id, ?string $client_ip = null)
 	{
 		// Parse post payloads safely.
-		$post = null;
-		if (is_string($serialize_post) && Serialization::try_unserialize($serialize_post, $post)) {
-			// ok
-		} elseif (is_object($serialize_post)) {
-			$post = $serialize_post;
-		} elseif (is_array($serialize_post)) {
-			$post = (object) $serialize_post;
-		} else {
-			Debug::warning('logify-debug: on_wp_after_insert_post - unable to parse $serialize_post; type=' . gettype($serialize_post));
-		}
+		$post = Serialization::to_object( $serialize_post, 'on_wp_after_insert_post' );
 
-		$post_before = null;
-		if (is_string($serialize_post_before) && Serialization::try_unserialize($serialize_post_before, $post_before)) {
-			// ok
-		} elseif (is_object($serialize_post_before)) {
-			$post_before = $serialize_post_before;
-		} elseif (is_array($serialize_post_before)) {
-			$post_before = (object) $serialize_post_before;
-		} else {
-			Debug::warning('logify-debug: on_wp_after_insert_post - unable to parse $serialize_post_before; type=' . gettype($serialize_post_before));
+		$post_before = Serialization::to_object( $serialize_post_before, 'on_wp_after_insert_post' );
+
+		// A payload that could not be interpreted leaves nothing to log, and every property
+		// read below would warn.
+		if ( ! is_object( $post ) || ! isset( $post->post_type ) ) {
+			Debug::verbose( 'Post_Tracker::on_wp_after_insert_post: no usable post payload', $post_id );
+			return;
 		}
 
 		//Current User id
@@ -669,7 +639,9 @@ class Post_Tracker
 
 				// Get the taxonomy object and name.
 				$taxonomy_obj = get_taxonomy($taxonomy);
-				$taxonomy_name = $taxonomy_obj->label;
+				$taxonomy_name = ( $taxonomy_obj && ! empty( $taxonomy_obj->label ) )
+					? $taxonomy_obj->label
+					: Strings::key_to_label( $taxonomy, true );
 
 				// Get the event type.
 				if ($post->post_type === 'nav_menu_item') {
@@ -723,11 +695,15 @@ class Post_Tracker
 	public static function on_shutdown()
 	{
 		// Save the post update/create event, if necessary.
-		if (self::$update_post_event && (self::$creating || self::$update_post_event->has_changes())) {
-			self::$update_post_event->save();
+		$event = self::$update_post_event;
+		$creating = self::$creating;
+		self::$update_post_event = null;
+		self::$creating = false;
+		if ( $event && $event->is_new() && ( $creating || $event->has_changes() ) ) {
+			$event->save();
 		}
 
-		Taxonomy_Utility::get_current_taxonomies_core_properties();
+		// No expensive taxonomy scan on every page view or completed queue job.
 	}
 
 	// =============================================================================================
@@ -748,6 +724,11 @@ class Post_Tracker
 			// Load the post if necessary.
 			if (is_int($post)) {
 				$post = Post_Utility::load($post);
+			}
+
+			// Nothing to build an event from.
+			if ( ! $post instanceof \WP_Post ) {
+				return null;
 			}
 
 			// Get the post type.

@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use DateTime;
 use RuntimeException;
 use WP_Error;
@@ -242,12 +247,24 @@ class Post_Utility extends Object_Utility {
 	 * @param string $post_type The post type.
 	 * @return string The singular name of the post type, or a reasonable fallback.
 	 */
-	public static function get_post_type_singular_name( string $post_type ): string {
+	public static function get_post_type_singular_name( ?string $post_type ): string {
+		// Nullable: callers pass $post->post_type, which is empty for a post that could not
+		// be loaded.
+		if ( $post_type === null || $post_type === '' ) {
+			return __( 'Post', 'logify-wp' );
+		}
+
 		// Get the post type object.
 		$post_type_object = get_post_type_object( $post_type );
 
-		// Return the singular name, or a reasonable fallback.
-		return $post_type_object->labels->singular_name ?? Strings::key_to_label( $post_type, true );
+		// get_post_type_object() returns null for a post type that is no longer registered.
+		// The null coalescing operator does not help here: reading a property on a non-object
+		// raises a warning before ?? is ever reached.
+		if ( ! is_object( $post_type_object ) || empty( $post_type_object->labels->singular_name ) ) {
+			return Strings::key_to_label( $post_type, true );
+		}
+
+		return $post_type_object->labels->singular_name;
 	}
 
 	/**
@@ -380,6 +397,12 @@ class Post_Utility extends Object_Utility {
 
 		// Initialize the result.
 		$term_refs = array();
+
+		// A post that has already been deleted has no terms to report, and asking for its
+		// post_type would warn. This accounted for the most frequent warning in this file.
+		if ( ! $post instanceof WP_Post ) {
+			return $term_refs;
+		}
 
 		// Get all the relevant taxonomy names.
 		$taxonomies = get_object_taxonomies( $post->post_type );

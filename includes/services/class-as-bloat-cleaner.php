@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Class AS_Bloat_Cleaner
  *
@@ -27,13 +32,12 @@ final class AS_Bloat_Cleaner {
 
 	/**
 	 * Cron interval name.
+	 *
+	 * Uses WordPress's built-in hourly schedule. Earlier versions registered a custom
+	 * ten-minute interval; see schedule() for the migration of existing sites.
 	 */
-	private const CRON_INTERVAL = 'ten_minutes';
+	private const CRON_INTERVAL = 'hourly';
 
-	/**
-	 * Cron interval in seconds (10 minutes).
-	 */
-	private const CRON_INTERVAL_SECS = 600;
 
 	/**
 	 * Number of days to retain Action Scheduler actions and logs.
@@ -64,7 +68,6 @@ final class AS_Bloat_Cleaner {
 	 * Initialize the cleaner by registering hooks.
 	 */
 	public static function init(): void {
-		add_filter( 'cron_schedules', [ __CLASS__, 'add_cron_interval' ] );
 		add_action( 'init', [ __CLASS__, 'schedule' ] );
 		add_action( self::CRON_HOOK, [ __CLASS__, 'run' ] );
 	}
@@ -73,25 +76,23 @@ final class AS_Bloat_Cleaner {
 	 * Schedule the cleanup cron job if not already scheduled.
 	 */
 	public static function schedule(): void {
-		if ( wp_next_scheduled( self::CRON_HOOK ) ) {
-			return;
+		$existing = function_exists( 'wp_get_scheduled_event' )
+			? wp_get_scheduled_event( self::CRON_HOOK )
+			: false;
+
+		if ( $existing ) {
+			// Already on the current schedule; nothing to do.
+			if ( isset( $existing->schedule ) && $existing->schedule === self::CRON_INTERVAL ) {
+				return;
+			}
+
+			// Migrate sites still carrying the old ten-minute schedule. This must clear the old
+			// event before WordPress tries to reschedule it: the custom interval is no longer
+			// registered, so a reschedule would fail and the cleanup would stop running.
+			wp_clear_scheduled_hook( self::CRON_HOOK );
 		}
 
 		wp_schedule_event( time() + 60, self::CRON_INTERVAL, self::CRON_HOOK );
-	}
-
-	/**
-	 * Register custom cron interval.
-	 *
-	 * @param array $schedules List of existing cron schedules.
-	 * @return array Modified list with new interval added.
-	 */
-	public static function add_cron_interval( $schedules ) {
-		$schedules[ self::CRON_INTERVAL ] = array(
-			'interval' => self::CRON_INTERVAL_SECS,
-			'display'  => esc_html__( 'Every 10 Minutes', 'logify-wp' ),
-		);
-		return $schedules;
 	}
 
 	/**
@@ -103,7 +104,9 @@ final class AS_Bloat_Cleaner {
 		$start = microtime( true );
 
 		// Calculate cutoff date (keep only recent actions/logs). Use UTC so comparisons match *_gmt columns.
-		$cutoff_date = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp', true ) - ( self::RETENTION_DAYS * DAY_IN_SECONDS ) );
+		// time() rather than current_time( 'timestamp', true ): both return UTC, but current_time()
+		// is documented as unsafe for timestamps and is filterable by other code.
+		$cutoff_date = gmdate( 'Y-m-d H:i:s', time() - ( self::RETENTION_DAYS * DAY_IN_SECONDS ) );
 
 		self::log( sprintf( 'Run started; cutoff=%s', $cutoff_date ) );
 
@@ -275,10 +278,30 @@ final class AS_Bloat_Cleaner {
 	 * @param float   $start      Start microtime for time limit check.
 	 */
 	private static function delete_log_ids( $wpdb, $logs_table, $log_ids, $start ): int {
+		$log_ids = array_values( array_filter( array_map( 'intval', (array) $log_ids ) ) );
+		if ( ! $log_ids ) {
+			return 0;
+		}
+
 		$deleted = 0;
-		foreach ( $log_ids as $log_id ) {
-			$wpdb->delete( $logs_table, array( 'log_id' => $log_id ), array( '%d' ) );
-			$deleted++;
+
+		// Delete in chunks with a single statement each, rather than one DELETE per row.
+		// A batch of 1000 rows previously meant 1000 round trips to the database.
+		foreach ( array_chunk( $log_ids, 200 ) as $chunk ) {
+			$placeholders = Database::in_placeholders( count( $chunk ) );
+
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$result = $wpdb->query(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+				$wpdb->prepare(
+					"DELETE FROM %i WHERE log_id IN ($placeholders)",
+					array_merge( array( $logs_table ), $chunk )
+				)
+			);
+
+			if ( is_numeric( $result ) ) {
+				$deleted += (int) $result;
+			}
 
 			if ( self::time_exceeded( $start ) ) {
 				break;
@@ -302,9 +325,11 @@ final class AS_Bloat_Cleaner {
 	 * Output a debug line to error_log when available.
 	 */
 	private static function log( string $message ): void {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			// Uncomment for verbose runtime diagnostics:
-			// Debug::info( self::LOG_PREFIX . $message );
+		// Verbose runtime diagnostics, off unless the site opts in with
+		// define( 'LOGIFY_WP_DEBUG', true ). Previously this was an empty block, so the
+		// sprintf() calls at every call site did work that was always discarded.
+		if ( defined( 'LOGIFY_WP_DEBUG' ) && LOGIFY_WP_DEBUG ) {
+			Debug::info( self::LOG_PREFIX . $message );
 		}
 	}
 }

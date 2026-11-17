@@ -5,6 +5,11 @@
  */
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 class Note {
     /**
      * @var int $id Primary Key: Unique ID for the note.
@@ -26,14 +31,14 @@ class Note {
 	 *
 	 * @var string
 	 */
-	public string $user_name;
+	public string $user_name = '';
 
 	/**
 	 * The role of the user. Will be 'none' for an anonymous user.
 	 *
 	 * @var string
 	 */
-	public string $user_role;    
+	public string $user_role = '';
 
     /**
      * @var string $note The note content.
@@ -49,6 +54,61 @@ class Note {
      * @var string $ip_address IP Address of the user who created the note.
      */
     public $ip_address;
+
+	/**
+	 * The following were being assigned without being declared.
+	 *
+	 * PHP 8.2 deprecates creating a property on an object that does not declare it, so every
+	 * note loaded produced a batch of E_DEPRECATED notices, and in PHP 9 it becomes an error.
+	 * They are declared here, with defaults, so they can also be read safely before they are
+	 * set - reading an undeclared property is a separate warning, which is what produced
+	 * "Undefined property: Logify_WP\Note::$object_type" on the Notes page.
+	 *
+	 * @var mixed
+	 */
+	public $when_happened = null;
+
+	/**
+	 * The IP address the note was written from.
+	 *
+	 * @var ?string
+	 */
+	public ?string $user_ip = null;
+
+	/**
+	 * The event this note is attached to, or 0 for a standalone note.
+	 *
+	 * @var mixed
+	 */
+	public $event_id = 0;
+
+	/**
+	 * The type of object the related event concerns, if any.
+	 *
+	 * @var ?string
+	 */
+	public ?string $object_type = null;
+
+	/**
+	 * Properties of the related event.
+	 *
+	 * @var ?array
+	 */
+	public ?array $properties = null;
+
+	/**
+	 * Metadata of the related event.
+	 *
+	 * @var ?array
+	 */
+	public ?array $eventmetas = null;
+
+	/**
+	 * Other notes on the related event.
+	 *
+	 * @var mixed
+	 */
+	public $eventnotes = null;
 
     /**
      * Constructor to initialize the Note object.

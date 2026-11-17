@@ -1,6 +1,11 @@
 <?php
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -53,15 +58,15 @@ class Note_Repository extends Repository {
         $charset_collate = $wpdb->get_charset_collate();
     
         $sql = "CREATE TABLE {$table_name} (
-            note_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            activity_id BIGINT UNSIGNED NOT NULL,
-            user_id BIGINT UNSIGNED NOT NULL,
-            user_name VARCHAR(255) NOT NULL,
-            user_role VARCHAR(255) NOT NULL,
-            note TEXT NOT NULL,
-            created_at DATETIME NOT NULL,
-            updated_at DATETIME NULL,
-            ip_address VARCHAR(45) NOT NULL,
+            note_id bigint unsigned NOT NULL AUTO_INCREMENT,
+            activity_id bigint unsigned NOT NULL,
+            user_id bigint unsigned NOT NULL,
+            user_name varchar(255) NOT NULL,
+            user_role varchar(255) NOT NULL,
+            note text NOT NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NULL,
+            ip_address varchar(45) NOT NULL,
             PRIMARY KEY (note_id),
             KEY activity_index (activity_id)
         ) {$charset_collate} ENGINE=InnoDB;";
@@ -81,11 +86,19 @@ class Note_Repository extends Repository {
 		$note->id             = (int) $record['note_id'];
 		$note->when_happened  = DateTimes::create_datetime( $record['created_at'] );
 		$note->user_id        = (int) $record['user_id'];
-		$note->user_name      = $record['user_name'];
-		$note->user_role      = $record['user_role'];
+		// Cast: these are declared as strings, and the columns are nullable.
+		$note->user_name      = (string) ( $record['user_name'] ?? '' );
+		$note->user_role      = (string) ( $record['user_role'] ?? '' );
         $note->user_ip        = $record['ip_address'] ?? null;
 		$note->note  = $record['note'];
-		$note->event_id     = $record['activity_id'];
+		$note->event_id     = isset( $record['activity_id'] ) ? (int) $record['activity_id'] : 0;
+		// created_at, activity_id and ip_address were never copied across, so a Note object
+		// carried an empty created_at. The Notes page passes that to new DateTime(), and an
+		// empty string means "now" - so every note was displayed with the current date and time
+		// instead of the date it was written.
+		$note->created_at   = $record['created_at'] ?? '';
+		$note->activity_id  = isset( $record['activity_id'] ) ? (int) $record['activity_id'] : null;
+		$note->ip_address   = $record['ip_address'] ?? '';
 		return $note;
 	}   
     
@@ -122,6 +135,11 @@ class Note_Repository extends Repository {
 
             // Load the notes.
             $note->eventnotes = Note_Repository::load_by_event_id( $note->event_id );
+
+            // Note: object_type is deliberately not populated here. It is only used to title
+            // a section on the Notes page, and loading the related event to get it would add
+            // queries on the edit and delete paths, which do not need it. The Notes page
+            // falls back to a generic heading when it is not set.
         }
 		return $note;
     }
@@ -166,8 +184,8 @@ class Note_Repository extends Repository {
      */
     public static function drop_table(): void {
         global $wpdb;
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
-        $wpdb->query("DROP TABLE IF EXISTS " . self::get_table_name());
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
+        $wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', self::get_table_name() ) );
     }
 
     /**
@@ -177,8 +195,8 @@ class Note_Repository extends Repository {
      */
     public static function truncate_table(): void {
         global $wpdb;
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Static Table Name
-        $wpdb->query("TRUNCATE TABLE " . self::get_table_name());
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
+        $wpdb->query( $wpdb->prepare( 'TRUNCATE TABLE %i', self::get_table_name() ) );
     }
 
 
@@ -192,9 +210,8 @@ class Note_Repository extends Repository {
     public static function create(array $data): int {
         global $wpdb;
         
-        if (empty($data['activity_id']) || !is_numeric($data['activity_id'])) {
-           // throw new InvalidArgumentException('Invalid or missing activity_id.');
-        }
+        // Note: activity_id is optional. A note created from the Notes page is not attached to
+        // an event, and is stored with activity_id 0.
 
         if (empty($data['user_id']) || !is_numeric($data['user_id'])) {
             throw new InvalidArgumentException('Invalid or missing user_id.');
@@ -347,8 +364,9 @@ class Note_Repository extends Repository {
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		return $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT * FROM `{$table_name}` WHERE activity_id = %d ORDER BY note_id DESC LIMIT 1",
-				intval($event_id)
+				'SELECT * FROM %i WHERE activity_id = %d ORDER BY note_id DESC LIMIT 1',
+				$table_name,
+				intval( $event_id )
 			)
 		);
     }
@@ -358,10 +376,20 @@ class Note_Repository extends Repository {
 	 */
 	private static function table_exists($table_name) {
 		global $wpdb;
-        
-        $query = $wpdb->prepare('SHOW TABLES LIKE %s', $table_name);
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        return $wpdb->get_var($query) === $table_name; // check the table existance
+
+		// Cached for the life of the request. This is called once per note lookup, so on a log
+		// page of 20 rows the uncached version ran 20 identical SHOW TABLES queries.
+		static $cache = array();
+
+		if ( isset( $cache[ $table_name ] ) ) {
+			return $cache[ $table_name ];
+		}
+
+		$query = $wpdb->prepare( 'SHOW TABLES LIKE %s', $table_name );
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$cache[ $table_name ] = ( $wpdb->get_var( $query ) === $table_name );
+
+		return $cache[ $table_name ];
 	}
     
 }

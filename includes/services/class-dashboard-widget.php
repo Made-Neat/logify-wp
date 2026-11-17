@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_User;
 
 /**
@@ -33,7 +38,7 @@ class Dashboard_Widget {
 		// Add the widget.
 		wp_add_dashboard_widget(
 			'logify_wp_dashboard_widget',
-			'Logify WP - Recent Site Activity',
+			__( 'Logify WP - Recent Site Activity', 'logify-wp' ),
 			array( __CLASS__, 'display_dashboard_widget' )
 		);
 	}

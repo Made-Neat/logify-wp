@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Class Logify_WP\Plugin_Utility
  *
@@ -92,7 +97,7 @@ class Plugin_Utility extends Object_Utility {
 
 		// Name or link. Use the link if there is one, otherwise use the name.
 		if ( $plugin['PluginURI'] ) {
-			$link = "<a href='{$plugin['PluginURI']}' target='_blank'>{$plugin['Name']}</a>";
+			$link = "<a href='" . esc_url( $plugin['PluginURI'] ) . "' target='_blank' rel='noopener noreferrer'>" . esc_html( $plugin['Name'] ) . '</a>';
 			Property::update_array( $props, 'link', null, $link );
 		} else {
 			Property::update_array( $props, 'name', null, $plugin['Name'] );
@@ -106,7 +111,7 @@ class Plugin_Utility extends Object_Utility {
 
 		// Author. Use the link if there is one.
 		if ( $plugin['AuthorURI'] ) {
-			$author = "<a href='{$plugin['AuthorURI']}' target='_blank'>{$plugin['AuthorName']}</a>";
+			$author = "<a href='" . esc_url( $plugin['AuthorURI'] ) . "' target='_blank' rel='noopener noreferrer'>" . esc_html( $plugin['AuthorName'] ) . '</a>';
 		} else {
 			$author = $plugin['AuthorName'];
 		}

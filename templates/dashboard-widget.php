@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 global $wpdb;
 
 // Get the logify_wp_events table name.
@@ -43,11 +48,11 @@ $recordset = $wpdb->get_results(
 	<div class="logify-wp-stats">
 		<div class="logify-wp-stats-box">
 			<div class="logify-wp-stats-number"><?php echo esc_html( $activities_last_hour ); ?></div>
-			<div class="logify-wp-stats-title">Events in the last hour</div>
+			<div class="logify-wp-stats-title"><?php esc_html_e( 'Events in the last hour', 'logify-wp' ); ?></div>
 		</div>
 		<div class="logify-wp-stats-box">
 			<div class="logify-wp-stats-number"><?php echo esc_html( $activities_last_24_hours ); ?></div>
-			<div class="logify-wp-stats-title">Events in the last 24 hours</div>
+			<div class="logify-wp-stats-title"><?php esc_html_e( 'Events in the last 24 hours', 'logify-wp' ); ?></div>
 		</div>
 	</div>
 
@@ -55,10 +60,10 @@ $recordset = $wpdb->get_results(
 	<table id="logify-wp-dashboard-table">
 		<thead>
 			<tr>
-				<th>Date & Time</th>
-				<th>User</th>
-				<th>Event</th>
-				<!-- <th>Object</th> -->
+				<th><?php esc_html_e( 'Date & Time', 'logify-wp' ); ?></th>
+				<th><?php esc_html_e( 'User', 'logify-wp' ); ?></th>
+				<th><?php esc_html_e( 'Event', 'logify-wp' ); ?></th>
+				<!-- <th><?php esc_html_e( 'Object', 'logify-wp' ); ?></th> -->
 			</tr>
 		</thead>
 		<tbody>
@@ -74,7 +79,7 @@ $recordset = $wpdb->get_results(
 				}
 			} else {
 				?>
-				<tr><td colspan="4">No activities found.</td></tr>
+				<tr><td colspan="4"><?php esc_html_e( 'No activities found.', 'logify-wp' ); ?></td></tr>
 				<?php
 			}
 			?>

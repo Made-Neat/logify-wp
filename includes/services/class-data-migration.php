@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Class encapsulating data migration functionality.
  */
@@ -31,12 +36,12 @@ class Data_Migration {
 		// Verify nonce.
 		$nonce = isset( $_GET['logify_wp_nonce'] ) ? sanitize_text_field( wp_unslash( $_GET['logify_wp_nonce'] ) ) : '';
 		if ( ! $nonce || ! wp_verify_nonce( $nonce, 'logify_wp_migrate_data_action' ) ) {
-			wp_die( esc_html( 'Security check failed. Please try again.' ), esc_html( 'Error' ), array( 'response' => 403 ) );
+			wp_die( esc_html__( 'Security check failed. Please try again.', 'logify-wp' ), esc_html__( 'Error', 'logify-wp' ), array( 'response' => 403 ) );
 		}
 
 		// Check user capabilities.
 		if ( ! Access_Control::can_access_settings_page() ) {
-			wp_die( esc_html( 'You are not allowed to perform this action.' ), esc_html( 'Error' ), array( 'response' => 403 ) );
+			wp_die( esc_html__( 'You are not allowed to perform this action.', 'logify-wp' ), esc_html__( 'Error', 'logify-wp' ), array( 'response' => 403 ) );
 		}
 
 		// Fix the altered column name in the old wp_logify_properties table.
@@ -57,7 +62,7 @@ class Data_Migration {
 		$redirect_nonce = wp_create_nonce( 'logify_wp_messages_nonce' );
 
 		// Redirect back with success message and nonce.
-		wp_redirect(
+		wp_safe_redirect(
 			add_query_arg(
 				array(
 					'migrated'        => 'success',
@@ -194,7 +199,7 @@ class Data_Migration {
 			// Remove any invalid fields.
 			$valid_fields = self::get_table_column_names( $new_table_name );
 			foreach ( $record as $key => $value ) {
-				if ( ! in_array( $key, $valid_fields ) ) {
+				if ( ! in_array( $key, $valid_fields, true ) ) {
 					unset( $record[ $key ] );
 				}
 			}

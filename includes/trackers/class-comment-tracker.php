@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_Comment;
 use WP_Error;
 
@@ -30,29 +35,29 @@ class Comment_Tracker {
 	public static function init() { 
 
 		// Add comment.
-		add_action( 'wp_insert_comment', [__NAMESPACE__.'\Async_Tracker','async_wp_insert_comment'], 10, 2 );
-		add_action( 'middle_wp_insert_comment', array( __CLASS__, 'on_wp_insert_comment' ), 10, 2 );
+		add_action( 'wp_insert_comment', Async_Tracker::safe_callback( 'async_wp_insert_comment', false ), 10, 2 );
+		add_action( 'middle_wp_insert_comment', array( __CLASS__, 'on_wp_insert_comment' ), 10, 4 );
 		
 		// Edit comment.
-		add_filter( 'wp_update_comment_data', [__NAMESPACE__.'\Async_Tracker','async_wp_update_comment_data'], 10, 3 );
-		add_filter( 'middle_wp_update_comment_data', array( __CLASS__, 'on_wp_update_comment_data' ), 10, 3 );
+		add_filter( 'wp_update_comment_data', Async_Tracker::safe_callback( 'async_wp_update_comment_data', true ), 10, 3 );
+		add_filter( 'middle_wp_update_comment_data', array( __CLASS__, 'on_wp_update_comment_data' ), 10, 5 );
 
-		add_action( 'edit_comment', [__NAMESPACE__.'\Async_Tracker','async_edit_comment'], 10, 2 );
-		add_action( 'middle_edit_comment', array( __CLASS__, 'on_edit_comment' ), 10, 2 );
+		add_action( 'edit_comment', Async_Tracker::safe_callback( 'async_edit_comment', false ), 10, 2 );
+		add_action( 'middle_edit_comment', array( __CLASS__, 'on_edit_comment' ), 10, 4 );
 		
 		// Delete comment.
-		add_action( 'delete_comment', [__NAMESPACE__.'\Async_Tracker','async_delete_comment'], 10, 2 );
-		add_action( 'middle_delete_comment', array( __CLASS__, 'on_delete_comment' ), 10, 2 );
+		add_action( 'delete_comment', Async_Tracker::safe_callback( 'async_delete_comment', false ), 10, 2 );
+		add_action( 'middle_delete_comment', array( __CLASS__, 'on_delete_comment' ), 10, 4 );
 		
 		// Change to comment status.
-		add_action( 'transition_comment_status', [__NAMESPACE__.'\Async_Tracker','async_transition_comment_status'], 10, 3 );
-		add_action( 'middle_transition_comment_status', array( __CLASS__, 'on_transition_comment_status' ), 10, 3 );
+		add_action( 'transition_comment_status', Async_Tracker::safe_callback( 'async_transition_comment_status', false ), 10, 3 );
+		add_action( 'middle_transition_comment_status', array( __CLASS__, 'on_transition_comment_status' ), 10, 5 );
 		
-		add_action( 'trashed_post_comments', [__NAMESPACE__.'\Async_Tracker','async_trashed_post_comments'], 10, 2 );
-		add_action( 'middle_trashed_post_comments', array( __CLASS__, 'on_trashed_post_comments' ), 10, 2 );
+		add_action( 'trashed_post_comments', Async_Tracker::safe_callback( 'async_trashed_post_comments', false ), 10, 2 );
+		add_action( 'middle_trashed_post_comments', array( __CLASS__, 'on_trashed_post_comments' ), 10, 4 );
 		
-		add_action( 'untrash_post_comments', [__NAMESPACE__.'\Async_Tracker','async_untrash_post_comments'], 10, 3 );
-		add_action( 'middle_untrash_post_comments', array( __CLASS__, 'on_untrash_post_comments' ), 10, 1 );
+		add_action( 'untrash_post_comments', Async_Tracker::safe_callback( 'async_untrash_post_comments', false ), 10, 3 );
+		add_action( 'middle_untrash_post_comments', array( __CLASS__, 'on_untrash_post_comments' ), 10, 3 );
 	}
 
 	/**
@@ -61,7 +66,7 @@ class Comment_Tracker {
 	 * @param int        $id      The comment ID.
 	 * @param WP_Comment $comment Comment object.
 	 */
-	public static function on_wp_insert_comment( int $id, $serialize_comment, int $acting_user_id = 0 ) {
+	public static function on_wp_insert_comment( int $id, $serialize_comment, int $acting_user_id = 0, ?string $client_ip = null ) {
 
 		// Deserialize comment object safely
 		if ( is_string( $serialize_comment ) ) {
@@ -77,7 +82,7 @@ class Comment_Tracker {
 		}
 		Debug::info( 'on_wp_insert_comment', $id );
 		
-		Logger::log_event( 'Comment Added', $comment, null, null, $acting_user_id ?: null, true );
+		Logger::log_event( 'Comment Added', $comment, null, null, $acting_user_id ?: null, true, $client_ip );
 	}
 
 	/**
@@ -93,7 +98,7 @@ class Comment_Tracker {
 	 * @param array          $commentarr The new, raw comment data.
 	 * @return array|WP_Error The new, processed comment data, or WP_Error.
 	 */
-	public static function on_wp_update_comment_data( $data, array $comment, array $commentarr ): array|WP_Error {
+	public static function on_wp_update_comment_data( $data, array $comment, array $commentarr, int $acting_user_id = 0, ?string $client_ip = null ): array|WP_Error {
 		
 		
 		// If the data is an error, ignore.
@@ -133,14 +138,14 @@ class Comment_Tracker {
 	 * @param int   $comment_id The comment ID.
 	 * @param array $data       Comment data.
 	 */
-	public static function on_edit_comment( int $comment_id, array $data ) {
+	public static function on_edit_comment( int $comment_id, array $data, int $acting_user_id = 0, ?string $client_ip = null ) {
 		Debug::info( 'on_edit_comment', $comment_id );
 
 		// Load the comment.
 		$comment = Comment_Utility::load( $comment_id );
 
 		// Log the event.
-		Logger::log_event( 'Comment Updated', $comment, null, self::$properties, get_current_user_id() ?: null, true );
+		Logger::log_event( 'Comment Updated', $comment, null, self::$properties, $acting_user_id ?: null, true, $client_ip );
 	}
 
 	/**
@@ -149,7 +154,7 @@ class Comment_Tracker {
 	 * @param string     $comment_id The comment ID as a numeric string.
 	 * @param WP_Comment $comment    The comment to be deleted.
 	 */
-	public static function on_delete_comment( $comment_id, $serialize_comment, int $acting_user_id = 0 ) {
+	public static function on_delete_comment( $comment_id, $serialize_comment, int $acting_user_id = 0, ?string $client_ip = null ) {
 
 		// Deserialize comment object safely
 		if ( is_string( $serialize_comment ) ) {
@@ -169,7 +174,7 @@ class Comment_Tracker {
 		$props = Comment_Utility::get_properties( $comment );
 		
 		// Log the event.
-		Logger::log_event( 'Comment Deleted', $comment, null, $props, $acting_user_id ?: null, true );
+		Logger::log_event( 'Comment Deleted', $comment, null, $props, $acting_user_id ?: null, true, $client_ip );
 	}
 
 	/**
@@ -179,7 +184,7 @@ class Comment_Tracker {
 	 * @param int|string $old_status The old comment status.
 	 * @param WP_Comment $comment    Comment object.
 	 */
-	public static function on_transition_comment_status( int|string $new_status, int|string $old_status, $comment, int $acting_user_id = 0 ) {
+	public static function on_transition_comment_status( int|string $new_status, int|string $old_status, $comment, int $acting_user_id = 0, ?string $client_ip = null ) {
 		
 		// F-11: this arrives as a serialized string from postFilteredData(), so the old
 		// (object) cast produced stdClass{ scalar: 'O:10:"WP_Comment":...' } rather than a
@@ -222,7 +227,7 @@ class Comment_Tracker {
 		Property::update_array( $props, 'status', null, $old_status, $new_status );
 
 		// Log the event.
-		Logger::log_event( $event_type, $comment, null, $props, $acting_user_id ?: null, true );
+		Logger::log_event( $event_type, $comment, null, $props, $acting_user_id ?: null, true, $client_ip );
 	}
 
 	/**
@@ -234,7 +239,7 @@ class Comment_Tracker {
 	 * @param int   $post_id  Post ID.
 	 * @param array $statuses Array of comment statuses.
 	 */
-	public static function on_trashed_post_comments( int $post_id, array $statuses ) {
+	public static function on_trashed_post_comments( int $post_id, array $statuses, int $acting_user_id = 0, ?string $client_ip = null ) {
 		Debug::info( 'on_trashed_post_comments', $post_id );
 
 		// Get the post reference.
@@ -252,7 +257,7 @@ class Comment_Tracker {
 			Property::update_array( $props, 'post', null, $post_ref );
 
 			// Log the event.
-			Logger::log_event( 'Comment Trashed with Post', $comment, null, $props, get_current_user_id() ?: null, true );
+			Logger::log_event( 'Comment Trashed with Post', $comment, null, $props, $acting_user_id ?: null, true, $client_ip );
 		}
 	}
 
@@ -261,7 +266,7 @@ class Comment_Tracker {
 	 *
 	 * @param int $post_id Post ID.
 	 */
-	public static function on_untrash_post_comments( int $post_id ) {
+	public static function on_untrash_post_comments( int $post_id, int $acting_user_id = 0, ?string $client_ip = null ) {
 		Debug::info( 'on_untrash_post_comments', $post_id );
 
 		// Get the original statuses of the comments that were trashed with the post, if any.
@@ -288,7 +293,7 @@ class Comment_Tracker {
 			Property::update_array( $props, 'post', null, $post_ref );
 
 			// Log the event.
-			Logger::log_event( 'Comment Restored', $comment, null, $props, get_current_user_id() ?: null, true );
+			Logger::log_event( 'Comment Restored', $comment, null, $props, $acting_user_id ?: null, true, $client_ip );
 		}
 	}
 }

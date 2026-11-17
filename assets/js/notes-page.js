@@ -7,9 +7,9 @@ jQuery(($) => {
     // Set up the datatable.
     let eventsTable = $('#logify-wp-activity-log').DataTable({
         processing: true,
-        language: {
-            processing: 'Please wait...'
-        },
+        language: window.logifyWpTableLanguage(),
+        // Widths are set in CSS so the table does not resize itself between draws.
+        autoWidth: false,
         serverSide: true,
         ajax: {
             url: logifyWpLogPage.ajaxUrl,
@@ -17,11 +17,11 @@ jQuery(($) => {
             data: (d) => {
                 d.action = 'logify_wp_fetch_notes';
                 d.security = logifyWpLogPage.ajaxNonce;
-                console.log('Sending AJAX request with data:', d);
             },
-            error: (xhr, error, code) => {
-                console.log('AJAX error:', error);
-                console.log('AJAX error code:', code);
+            error: (xhr, error) => {
+                if (window.console && window.console.error) {
+                    console.error('Logify WP: could not load notes', error);
+                }
             }
         },
         columns: [
@@ -280,7 +280,6 @@ jQuery(($) => {
         var date;
         try {
             date = $.datepicker.parseDate(logifyWpLogPage.dateFormat, element.value);
-            console.log(date);
         } catch (error) {
             date = null;
         }
@@ -415,21 +414,9 @@ jQuery(($) => {
     // Initialize the search form.
     initSearchForm();
 
-    // Open modal for editing an existing note
-    $('#notes-table').on('click', '.edit-note', function () {
-        const noteId = parseInt($(this).data('id'), 10); // Ensure numeric value
-        const noteContent = $(this).data('note');
-
-        $('#edit-note-id').val(noteId);
-
-        if (tinyMCE.get('edit-note-content')) {
-            tinyMCE.get('edit-note-content').setContent(noteContent); // Set content in TinyMCE
-        } else {
-            $('#edit-note-content').val(noteContent); // Fallback for textarea
-        }
-
-        $('#edit-note-modal').dialog('open');
-    });
+    // Note: the handler that used to live here listened on '#notes-table', an id that does
+    // not exist on this page, so it never fired. Opening and editing notes is handled by the
+    // shared dialog in common-page.js, which listens on the real table.
 
     // Submit form to save or update the note
     $('#edit-note-form').on('submit', function (e) {
@@ -442,7 +429,12 @@ jQuery(($) => {
 
         // Validate content before submitting
         if (!noteContent || noteContent.trim() === '') {
-            alert('Note content cannot be empty.');
+            if (window.logifyWpNote) {
+                window.logifyWpNote.showMessage(
+                    (logifyWpLogPage.i18n && logifyWpLogPage.i18n.noteEmpty) || 'Note content cannot be empty.',
+                    'error'
+                );
+            }
             return;
         }
 
@@ -482,4 +474,13 @@ jQuery(($) => {
         });
     });
     
+
+    // ---------------------------------------------------------------------------------------
+    // Filter chips, loading overlay and pagination bar, shared with the events log.
+    // ---------------------------------------------------------------------------------------
+    window.logifyWpInitFilters({ table: eventsTable });
+    window.logifyWpInitTableChrome(eventsTable);
+
+    // The shared note dialog refreshes the table after a delete.
+    window.logifyWpReloadTable = () => eventsTable.ajax.reload(null, false);
 });

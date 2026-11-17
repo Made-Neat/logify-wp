@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Class Logify_WP\Option_Utility
  *
@@ -37,6 +42,7 @@ class Option_Utility extends Object_Utility {
 	 * @var string[]
 	 */
 	private const NOISY_PREFIXES = array(
+		'logify_wp_option_batch_', // Internal temporary batch, never a user setting.
 		'_transient_',
 		'_site_transient_',
 		// Gravity Forms session/cache prefixes.
@@ -155,7 +161,7 @@ class Option_Utility extends Object_Utility {
 		global $wpdb;
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$count = (int) $wpdb->get_var(
-			$wpdb->prepare( 'SELECT COUNT(option_name) FROM %i WHERE option_name = %d', $wpdb->options, $option_name )
+			$wpdb->prepare( 'SELECT COUNT(option_name) FROM %i WHERE option_name = %s', $wpdb->options, (string) $option_name )
 		);
 		return $count > 0;
 	}
@@ -275,6 +281,15 @@ class Option_Utility extends Object_Utility {
 	}
 
 	/**
+	 * Only explicitly reviewed scalar core settings keep old/new values.
+	 * Plugin settings are intentionally metadata-only by default.
+	 */
+	public static function is_safe_value_option( string $name ): bool {
+		return in_array( $name, self::FORCE_TRACK_OPTIONS, true )
+			&& ! Sensitive_Data::is_secret_key( $name );
+	}
+
+	/**
 	 * Determine whether an option update should be logged.
 	 *
 	 * This centralizes noisy-option filtering and adds heuristics so plugin settings that do not
@@ -298,8 +313,13 @@ class Option_Utility extends Object_Utility {
 			}
 		}
 
-		// Respect the existing Settings API whitelist first.
-		$track = in_array( $option_name, self::FORCE_TRACK_OPTIONS, true );
+		// Already-safe metadata-only payloads originated from a tracked option before enqueue.
+		// Their original array shape is intentionally no longer in the async job.
+		$track = $old_value === Sensitive_Data::OMITTED_BEFORE
+			&& $new_value === Sensitive_Data::OMITTED_AFTER;
+		if ( ! $track ) {
+			$track = in_array( $option_name, self::FORCE_TRACK_OPTIONS, true );
+		}
 
 		if ( ! $track ) {
 			$track = self::is_setting( $option_name );

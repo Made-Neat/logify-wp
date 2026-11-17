@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use DateTime;
 use InvalidArgumentException;
 use WP_Post;
@@ -102,7 +107,10 @@ class Event {
 	 *
 	 * @var ?string
 	 */
-	public ?object  $eventnotes;
+	// Defaults to null: this is a typed property, so reading it before assignment raises a fatal
+	// "must not be accessed before initialization" error. Events built anywhere other than
+	// Event_Repository::load() previously left it unset.
+	public ?object $eventnotes = null;
 
 	/**
 	 * The unique identifier of the object associated with the event.
@@ -216,11 +224,15 @@ class Event {
 		// Get the object subtype if applicable.
 		$object_type = $object_ref?->type;
 		if ( $object_type === 'post' ) {
-			$post           = $wp_object instanceof WP_Post ? $wp_object : Post_Utility::load( $object_ref->key );
-			$object_subtype = $post->post_type;
+			$post = $wp_object instanceof WP_Post ? $wp_object : Post_Utility::load( $object_ref->key );
+
+			// The post may already be gone by the time an asynchronous event is written, in
+			// which case there is no subtype to record and reading one would warn.
+			$object_subtype = $post instanceof WP_Post ? $post->post_type : null;
 		} elseif ( $object_type === 'term' ) {
-			$term           = $wp_object instanceof WP_Term ? $wp_object : Term_Utility::load( $object_ref->key );
-			$object_subtype = $term->taxonomy;
+			$term = $wp_object instanceof WP_Term ? $wp_object : Term_Utility::load( $object_ref->key );
+
+			$object_subtype = $term instanceof WP_Term ? $term->taxonomy : null;
 		} else {
 			$object_subtype = null;
 		}
@@ -231,9 +243,15 @@ class Event {
 		$event->user_id        = $user_data['id'];
 		$event->user_name      = $user_data['name'];
 		$event->user_role      = implode( ', ', $user_data['roles'] );
-		// Prefer the client IP captured at enqueue time when available. Fall back to
-		// server-side detection if not provided.
-		$event->user_ip        = $client_ip ?? User_Utility::get_ip();
+		// Preserve the IP attribution from the original HTTP request, even if this
+		// event is saved later in a separate Action Scheduler PHP process.
+		// Async jobs must never infer the original visitor from the worker's
+		// HTTP request. Older queued jobs with no captured IP fail closed.
+		// Direct/synchronous logging still captures the current request normally.
+		$is_async_action = function_exists( 'current_filter' ) && str_starts_with( (string) current_filter(), 'middle_' );
+		$effective_ip_token = null !== $client_ip ? $client_ip : ( $is_async_action ? 'logify-system' : User_Utility::get_ip_context_token() );
+		$context               = User_Utility::decode_ip_context( $effective_ip_token );
+		$event->user_ip        = $context['ip'];
 		$event->user_location  = $event->user_ip ? User_Utility::get_location( $event->user_ip ) : null;
 		$event->user_agent     = User_Utility::get_user_agent();
 		$event->event_type     = $event_type;
@@ -243,6 +261,19 @@ class Event {
 		$event->object_name    = $object_ref?->name;
 		$event->eventmetas     = empty( $eventmetas ) ? null : $eventmetas;
 		$event->properties     = null;
+		// Existing user_ip remains the trusted connection/verified proxy address.
+		// A header from an unknown proxy is stored separately and never used as an
+		// authoritative identity in filters or security decisions.
+		if ( ! in_array( $context['source'], array( 'legacy', 'system', 'REMOTE_ADDR' ), true ) || $context['reported'] ) {
+			// One compact metadata row, rather than multiple SELECT/INSERT pairs
+			// per activity on busy proxied sites.
+			$event->set_meta( 'logify_ip_attribution', array(
+				'source'   => $context['source'],
+				'trust'    => $context['trust'],
+				'peer'     => $context['peer'],
+				'reported' => $context['reported'],
+			) );
+		}
 
 		// Add the core properties.
 		if ( $object_ref instanceof Object_Reference ) {
@@ -416,7 +447,7 @@ class Event {
 		}
 
 		// Update the properties array.
-		Property::update_array( $this->properties, $prop_key, $table_name, $val, $new_val );
+		Property::update_array( $this->properties, $prop_key, $table_name, Sensitive_Data::sanitize( $val, $prop_key ), Sensitive_Data::sanitize( $new_val, $prop_key ) );
 	}
 
 	/**

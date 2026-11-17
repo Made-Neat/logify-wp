@@ -7,6 +7,11 @@
 
 namespace Logify_WP;
 
+// Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use WP_Taxonomy;
 
 /**
@@ -154,16 +159,18 @@ class Taxonomy_Utility extends Object_Utility {
 			$singular = 'Product Shipping Class';
 		} elseif ( $taxonomy_slug === 'pa_colour' ) {
 			$singular = 'Product Colour';
-		} elseif ( isset( $taxonomy_obj->labels->singular_name ) ) {
+		} elseif ( ! empty( $taxonomy_obj->labels->singular_name ) ) {
 			$singular = ucwords( $taxonomy_obj->labels->singular_name );
 		} else {
 			$singular = Strings::key_to_label( $taxonomy_slug, true );
 		}
 
 		// Get the plural form from the taxonomy object.
-		if ( $taxonomy_obj->labels->name ) {
+		// isset() throughout: $taxonomy_obj is false for a taxonomy that is no longer
+		// registered, and reading a property on it would warn.
+		if ( ! empty( $taxonomy_obj->labels->name ) ) {
 			$plural = ucwords( $taxonomy_obj->labels->name );
-		} elseif ( $taxonomy_obj->label ) {
+		} elseif ( ! empty( $taxonomy_obj->label ) ) {
 			$plural = ucwords( $taxonomy_obj->label );
 		} else {
 			$plural = '';
